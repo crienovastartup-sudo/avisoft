@@ -1,4 +1,63 @@
-import React, { useState, useEffect, useCallback, Component } from "react";
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>AVISOFT — Gestão de Granja de Postura</title>
+<link rel="icon" href="data:,">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.24.7/babel.min.js"></script>
+<style>
+  html, body, #root { height: 100%; margin: 0; }
+  body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; }
+  * { box-sizing: border-box; }
+  button { font-family: inherit; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<!--
+  Polyfill de "window.storage" usando localStorage do navegador.
+  Implementa a mesma assinatura assíncrona (get/set/delete/list) usada
+  pelo AVISOFT, para que o app funcione fora do ambiente de artifacts
+  da Claude sem precisar alterar a lógica do sistema.
+
+  Observação: os dados ficam salvos no localStorage DESTE navegador,
+  neste computador. Se você abrir em outro navegador/computador, ou
+  limpar os dados de navegação, o AVISOFT começa do zero.
+-->
+<script>
+(function () {
+  const PREFIX = "avisoft::";
+  window.storage = {
+    async get(key) {
+      const raw = localStorage.getItem(PREFIX + key);
+      if (raw === null) throw new Error("Chave não encontrada: " + key);
+      return { key, value: raw, shared: false };
+    },
+    async set(key, value) {
+      localStorage.setItem(PREFIX + key, value);
+      return { key, value, shared: false };
+    },
+    async delete(key) {
+      const existed = localStorage.getItem(PREFIX + key) !== null;
+      localStorage.removeItem(PREFIX + key);
+      return { key, deleted: existed, shared: false };
+    },
+    async list(prefix) {
+      const keys = Object.keys(localStorage)
+        .filter((k) => k.startsWith(PREFIX + (prefix || "")))
+        .map((k) => k.slice(PREFIX.length));
+      return { keys, prefix: prefix || undefined, shared: false };
+    },
+  };
+})();
+</script>
+
+<script type="text/babel" data-presets="react" data-type="module">
+const { useState, useEffect, useCallback, Component } = React;
 
 /* ============================================================
    AVISOFT — ERP para granjas de postura comercial
@@ -1273,3 +1332,9 @@ function Fiscal({ db, filialId }) {
     </div>
   );
 }
+
+
+ReactDOM.createRoot(document.getElementById("root")).render(<AvisoftRoot />);
+</script>
+</body>
+</html>
