@@ -101,6 +101,11 @@ const emptyDB = () => ({
   movimentacoesEstoque: [],
   funcionarios: [],
   configsGerenciais: [],
+  galpoes: [],
+  lotesAves: [],
+  registrosPostura: [],
+  registrosMortalidade: [],
+  registrosEsterco: [],
 });
 
 const MODULES = [
@@ -119,6 +124,7 @@ const MODULES = [
   { key: "fiscal", label: "Fiscal (NFe/SPED)", icon: "\u2637" },
   { key: "folha", label: "Folha de Pagamento", icon: "\u2696" },
   { key: "relatorio", label: "Relatório Gerencial", icon: "\u25C9" },
+  { key: "producao", label: "Produção Avícola", icon: "\u2696" },
 ];
 
 /* -------- condições de pagamento & parcelamento -------- */
@@ -494,6 +500,71 @@ function downloadTextFile(filename, content) {
 function formatChave(chave) {
   if (!chave) return "";
   return (chave.match(/.{1,4}/g) || []).join(" ");
+}
+
+/* -------- Gráficos leves em SVG puro (sem dependência externa) -------- */
+
+function BarChart({ data, height = 180, color = GREEN, formatValue }) {
+  const max = Math.max(1, ...data.map((d) => d.value));
+  const w = 100 / data.length;
+  return (
+    <div style={{ display: "flex", alignItems: "flex-end", height, gap: 6, padding: "4px 2px" }}>
+      {data.map((d, i) => (
+        <div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end", height: "100%" }}>
+          <div style={{ fontSize: 9.5, color: MUTED, marginBottom: 2 }}>{formatValue ? formatValue(d.value) : d.value}</div>
+          <div style={{ width: "70%", minHeight: 2, height: `${Math.max(2, (d.value / max) * (height - 34))}px`, background: d.color || color, borderRadius: "3px 3px 0 0" }} />
+          <div style={{ fontSize: 9.5, color: MUTED, marginTop: 4, textAlign: "center", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", width: "100%" }}>{d.label}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function LineChart({ data, height = 160, color = GREEN, formatValue }) {
+  if (!data.length) return null;
+  const W = 600;
+  const values = data.map((d) => d.value);
+  const max = Math.max(...values, 0);
+  const min = Math.min(...values, 0);
+  const range = max - min || 1;
+  const stepX = data.length > 1 ? W / (data.length - 1) : 0;
+  const yFor = (v) => height - 22 - ((v - min) / range) * (height - 40);
+  const points = data.map((d, i) => `${i * stepX},${yFor(d.value)}`).join(" ");
+  const zeroY = yFor(0);
+  return (
+    <div style={{ width: "100%", overflowX: "auto" }}>
+      <svg viewBox={`0 0 ${W} ${height}`} style={{ width: "100%", height }} preserveAspectRatio="none">
+        <line x1="0" y1={zeroY} x2={W} y2={zeroY} stroke={BORDER} strokeWidth="1" />
+        <polyline points={points} fill="none" stroke={color} strokeWidth="2.5" />
+        {data.map((d, i) => (
+          <circle key={i} cx={i * stepX} cy={yFor(d.value)} r="3.5" fill={color} />
+        ))}
+      </svg>
+      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 9.5, color: MUTED, padding: "0 4px" }}>
+        {data.map((d, i) => <span key={i}>{d.label}</span>)}
+      </div>
+    </div>
+  );
+}
+
+function RankedList({ items, valueKey = "value", labelKey = "label", formatValue }) {
+  const max = Math.max(1, ...items.map((i) => i[valueKey]));
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      {items.map((it, i) => (
+        <div key={i}>
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 3 }}>
+            <span style={{ fontWeight: 700, color: INK }}>{i + 1}. {it[labelKey]}</span>
+            <span style={{ color: MUTED }}>{formatValue ? formatValue(it[valueKey]) : it[valueKey]}</span>
+          </div>
+          <div style={{ background: BG, borderRadius: 4, height: 6 }}>
+            <div style={{ width: `${(it[valueKey] / max) * 100}%`, height: "100%", background: GOLD, borderRadius: 4 }} />
+          </div>
+        </div>
+      ))}
+      {!items.length && <div style={{ color: MUTED, fontSize: 12.5 }}>Sem dados suficientes ainda.</div>}
+    </div>
+  );
 }
 
 /* -------- DANFE (representação visual, ambiente de homologação) -------- */
@@ -945,7 +1016,7 @@ function ModuleView({ activeModule, db, update, filialId, empresaId, usuario }) 
           fields={[
             { key: "nome", label: "Nome do produto", required: true },
             { key: "tipo", label: "Tipo", type: "select", options: [{ value: "ovo", label: "Ovo" }, { value: "embalagem", label: "Embalagem" }, { value: "outro", label: "Outro" }] },
-            { key: "unidade", label: "Unidade", type: "select", options: [{ value: "dz", label: "Dúzia" }, { value: "cx", label: "Caixa (30 dz)" }, { value: "un", label: "Unidade" }, { value: "kg", label: "Kg" }] },
+            { key: "unidade", label: "Unidade", type: "select", options: [{ value: "dz", label: "Dúzia" }, { value: "cx", label: "Caixa" }, { value: "un", label: "Unidade" }, { value: "kg", label: "Kg" }, { value: "ton", label: "Tonelada" }, { value: "l", label: "Litro" }, { value: "sc", label: "Saco" }] },
             { key: "custoUnit", label: "Custo unitário (R$)", type: "number" },
             { key: "precoVenda", label: "Preço de venda (R$)", type: "number" },
             { key: "lote", label: "Lote" },
@@ -993,6 +1064,8 @@ function ModuleView({ activeModule, db, update, filialId, empresaId, usuario }) 
       return <FolhaPagamento db={db} update={update} filialId={filialId} />;
     case "relatorio":
       return <RelatorioGerencial db={db} update={update} filialId={filialId} />;
+    case "producao":
+      return <ProducaoAvicola db={db} update={update} filialId={filialId} />;
     default:
       return null;
   }
@@ -1010,7 +1083,12 @@ function Inicio({ db, filialId }) {
   const compras = db.compras.filter((c) => c.filialId === filialId);
   const fretes = db.fretes.filter((f) => f.filialId === filialId);
   const avulsas = db.contasAvulsas.filter((a) => a.filialId === filialId);
+  const clientes = db.clientes.filter((c) => c.filialId === filialId);
+  const vendedores = db.vendedores.filter((v) => v.filialId === filialId);
+  const produtos = db.produtos.filter((p) => p.filialId === filialId);
+  const funcionarios = db.funcionarios.filter((f) => f.filialId === filialId && f.ativo !== false && f.ativo !== "false");
   const aberto = (s) => s !== "pago" && s !== "cancelado";
+
   const totalReceita = vendas.reduce((s, v) => s + Number(v.total || 0), 0);
   const totalReceber = vendas.flatMap((v) => v.parcelas || []).filter((p) => aberto(p.status)).reduce((s, p) => s + Number(p.valor || 0), 0)
     + avulsas.filter((a) => a.tipo === "receber" && aberto(a.status)).reduce((s, a) => s + Number(a.valor || 0), 0);
@@ -1018,6 +1096,61 @@ function Inicio({ db, filialId }) {
     + fretes.filter((f) => aberto(f.statusPagamento)).reduce((s, f) => s + Number(f.valorFrete || 0), 0)
     + avulsas.filter((a) => a.tipo === "pagar" && aberto(a.status)).reduce((s, a) => s + Number(a.valor || 0), 0);
   const totalDespesas = compras.reduce((s, c) => s + Number(c.valor || 0), 0) + fretes.reduce((s, f) => s + Number(f.valorFrete || 0), 0);
+
+  const hoje = todayISO();
+  const em30dias = new Date(new Date(hoje + "T00:00:00").getTime() + 30 * 86400000).toISOString().slice(0, 10);
+  const receber30 = vendas.flatMap((v) => v.parcelas || []).filter((p) => aberto(p.status) && p.vencimento >= hoje && p.vencimento <= em30dias).reduce((s, p) => s + Number(p.valor || 0), 0)
+    + avulsas.filter((a) => a.tipo === "receber" && aberto(a.status) && a.vencimento >= hoje && a.vencimento <= em30dias).reduce((s, a) => s + Number(a.valor || 0), 0);
+  const pagar30 = compras.flatMap((c) => c.parcelas || []).filter((p) => aberto(p.status) && p.vencimento >= hoje && p.vencimento <= em30dias).reduce((s, p) => s + Number(p.valor || 0), 0)
+    + avulsas.filter((a) => a.tipo === "pagar" && aberto(a.status) && a.vencimento >= hoje && a.vencimento <= em30dias).reduce((s, a) => s + Number(a.valor || 0), 0);
+
+  // Vendas dos últimos 6 meses
+  const seisMesesAtras = new Date(); seisMesesAtras.setMonth(seisMesesAtras.getMonth() - 5); seisMesesAtras.setDate(1);
+  const mesesVendas = listaDeMeses(seisMesesAtras.toISOString().slice(0, 10), hoje);
+  const vendasPorMes = mesesVendas.map((mes) => ({
+    label: nomeMes(mes),
+    value: vendas.filter((v) => v.data && v.data.startsWith(mes)).reduce((s, v) => s + Number(v.total || 0), 0),
+  }));
+
+  // Fluxo de caixa: 2 meses atrás até 3 meses à frente
+  const inicioFluxo = new Date(); inicioFluxo.setMonth(inicioFluxo.getMonth() - 2); inicioFluxo.setDate(1);
+  const fimFluxo = new Date(); fimFluxo.setMonth(fimFluxo.getMonth() + 3);
+  const mesesFluxo = listaDeMeses(inicioFluxo.toISOString().slice(0, 10), fimFluxo.toISOString().slice(0, 10));
+  const folhaMensal = funcionarios.reduce((s, f) => s + Number(f.salarioBruto || 0) + (Number(f.salarioBruto || 0) * Number(f.encargosPercentual || 0)) / 100 + Number(f.beneficios || 0), 0);
+  let acumulado = 0;
+  const fluxo = mesesFluxo.map((mes) => {
+    const entradas = vendas.flatMap((v) => v.parcelas || []).filter((p) => p.vencimento && p.vencimento.startsWith(mes)).reduce((s, p) => s + Number(p.valor || 0), 0)
+      + avulsas.filter((a) => a.tipo === "receber" && a.vencimento && a.vencimento.startsWith(mes)).reduce((s, a) => s + Number(a.valor || 0), 0);
+    const saidas = compras.flatMap((c) => c.parcelas || []).filter((p) => p.vencimento && p.vencimento.startsWith(mes)).reduce((s, p) => s + Number(p.valor || 0), 0)
+      + fretes.filter((f) => f.data && f.data.startsWith(mes)).reduce((s, f) => s + Number(f.valorFrete || 0), 0)
+      + avulsas.filter((a) => a.tipo === "pagar" && a.vencimento && a.vencimento.startsWith(mes)).reduce((s, a) => s + Number(a.valor || 0), 0)
+      + folhaMensal;
+    acumulado += entradas - saidas;
+    return { label: nomeMes(mes), value: acumulado };
+  });
+
+  // Vendedor em destaque
+  const rankVendedores = vendedores.map((v) => ({
+    label: v.apelido || v.nomeCompleto,
+    value: vendas.filter((x) => x.vendedorId === v.id).reduce((s, x) => s + Number(x.total || 0), 0),
+  })).filter((v) => v.value > 0).sort((a, b) => b.value - a.value);
+  const vendedorDestaque = rankVendedores[0];
+
+  // Produtos mais vendidos (por valor)
+  const vendidoPorProduto = {};
+  vendas.forEach((v) => (v.itens || []).forEach((it) => {
+    vendidoPorProduto[it.produtoId] = (vendidoPorProduto[it.produtoId] || 0) + Number(it.qtd || 0) * Number(it.precoUnit || 0);
+  }));
+  const rankProdutos = Object.entries(vendidoPorProduto)
+    .map(([produtoId, value]) => ({ label: produtos.find((p) => p.id === produtoId)?.nome || "Produto removido", value }))
+    .sort((a, b) => b.value - a.value).slice(0, 5);
+
+  // Top 10 clientes
+  const compradoPorCliente = {};
+  vendas.forEach((v) => { compradoPorCliente[v.clienteId] = (compradoPorCliente[v.clienteId] || 0) + Number(v.total || 0); });
+  const rankClientes = Object.entries(compradoPorCliente)
+    .map(([clienteId, value]) => ({ label: clientes.find((c) => c.id === clienteId)?.razaoSocial || "Cliente removido", value }))
+    .sort((a, b) => b.value - a.value).slice(0, 10);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
@@ -1027,10 +1160,40 @@ function Inicio({ db, filialId }) {
       </div>
       <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
         <StatCard label="Faturamento total" value={brl(totalReceita)} accent={GREEN} />
-        <StatCard label="A receber" value={brl(totalReceber)} accent={GOLD} />
-        <StatCard label="A pagar" value={brl(totalPagar)} accent={DANGER} />
+        <StatCard label="A receber (todos os prazos)" value={brl(totalReceber)} accent={GOLD} />
+        <StatCard label="A pagar (todos os prazos)" value={brl(totalPagar)} accent={DANGER} />
+        <StatCard label="A receber — próx. 30 dias" value={brl(receber30)} accent={GOLD} />
+        <StatCard label="A pagar — próx. 30 dias" value={brl(pagar30)} accent={DANGER} />
         <StatCard label="Despesas lançadas" value={brl(totalDespesas)} accent={MUTED} />
       </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+        <Card title="Vendas — últimos 6 meses">
+          <BarChart data={vendasPorMes} formatValue={(v) => (v >= 1000 ? `${(v / 1000).toFixed(0)}k` : brl(v))} />
+        </Card>
+        <Card title="Fluxo de caixa — saldo acumulado projetado" subtitle="2 meses atrás até 3 meses à frente, por vencimento das parcelas.">
+          <LineChart data={fluxo} color={GOLD} formatValue={brl} />
+        </Card>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16 }}>
+        <Card title="Vendedor em destaque">
+          {vendedorDestaque ? (
+            <div>
+              <div style={{ fontSize: 22, fontWeight: 800, color: GREEN }}>{vendedorDestaque.label}</div>
+              <div style={{ fontSize: 13, color: MUTED, marginTop: 4 }}>{brl(vendedorDestaque.value)} em vendas</div>
+              <div style={{ marginTop: 14 }}><RankedList items={rankVendedores.slice(1, 4)} formatValue={brl} /></div>
+            </div>
+          ) : <div style={{ color: MUTED, fontSize: 12.5 }}>Nenhuma venda com vendedor associado ainda.</div>}
+        </Card>
+        <Card title="Produtos mais vendidos">
+          <RankedList items={rankProdutos} formatValue={brl} />
+        </Card>
+        <Card title="Top 10 clientes">
+          <RankedList items={rankClientes} formatValue={brl} />
+        </Card>
+      </div>
+
       <Card title="Últimas vendas">
         <Table
           columns={[
@@ -1554,17 +1717,26 @@ function FabricaRacao({ db, update, filialId }) {
 
   const custoKgFormula = (f) => f.ingredientes.reduce((s, i) => s + (Number(i.percentual || 0) / 100) * Number(i.custoKg || 0), 0);
 
-  const [prod, setProd] = useState({ data: todayISO(), formulacaoId: "", qtdKg: "" });
+  const [prod, setProd] = useState({ data: todayISO(), formulacaoId: "", qtdKg: "", moega: "", pesoPorSaco: "40" });
   function lancarProducao(e) {
     e.preventDefault();
     const formula = formulacoes.find((f) => f.id === prod.formulacaoId);
     const custoTotal = formula ? custoKgFormula(formula) * Number(prod.qtdKg || 0) : 0;
-    update((prev) => ({ ...prev, producoesRacao: [...prev.producoesRacao, { id: uid(), filialId, ...prod, qtdKg: Number(prod.qtdKg), custoTotal }] }));
-    setProd({ data: todayISO(), formulacaoId: "", qtdKg: "" });
+    const sacos = Number(prod.pesoPorSaco || 0) > 0 ? Number(prod.qtdKg || 0) / Number(prod.pesoPorSaco) : 0;
+    update((prev) => ({ ...prev, producoesRacao: [...prev.producoesRacao, { id: uid(), filialId, data: prod.data, formulacaoId: prod.formulacaoId, moega: prod.moega, pesoPorSaco: Number(prod.pesoPorSaco || 0), qtdKg: Number(prod.qtdKg), sacos, custoTotal }] }));
+    setProd({ data: todayISO(), formulacaoId: "", qtdKg: "", moega: "", pesoPorSaco: "40" });
   }
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <Card title="Referência de mercado — insumos" subtitle="Cotações consultadas para apoiar a decisão de compra. Preços de commodities agrícolas oscilam diariamente — confirme no fornecedor antes de negociar.">
+        <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
+          <StatCard label="Milho — saca 60kg (CEPEA)" value="R$ 67 – 70" accent={GOLD} />
+          <StatCard label="Farelo de soja — tonelada" value="R$ 1.900" accent={GREEN} />
+        </div>
+        <div style={{ fontSize: 10.5, color: MUTED, marginTop: 8 }}>Fonte: CEPEA/Esalq e Portal DBO, cotações de agosto de 2026. Valores de referência — não são atualizados automaticamente pelo sistema.</div>
+      </Card>
+
       <Card title="Nova formulação" subtitle="Cadastre os ingredientes e o percentual de cada um na mistura.">
         <form onSubmit={salvarFormula} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           <Field label="Nome da formulação"><TextInput value={nomeFormula} onChange={(e) => setNomeFormula(e.target.value)} /></Field>
@@ -1594,12 +1766,17 @@ function FabricaRacao({ db, update, filialId }) {
         />
       </Card>
 
-      <Card title="Registrar produção" subtitle="Baixa o custo calculado da formulação e alimenta o estoque de ração.">
-        <form onSubmit={lancarProducao} style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr auto", gap: 10, alignItems: "end" }}>
+      <Card title="Registrar produção" subtitle="Baixa o custo calculado da formulação, converte em sacos e alimenta o estoque de ração.">
+        <form onSubmit={lancarProducao} style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, alignItems: "end" }}>
           <Field label="Data"><TextInput type="date" value={prod.data} onChange={(e) => setProd({ ...prod, data: e.target.value })} /></Field>
           <Field label="Formulação"><Select options={formulacoes.map((f) => ({ value: f.id, label: f.nome }))} value={prod.formulacaoId} onChange={(e) => setProd({ ...prod, formulacaoId: e.target.value })} /></Field>
+          <Field label="Moega / silo de origem"><TextInput value={prod.moega} onChange={(e) => setProd({ ...prod, moega: e.target.value })} /></Field>
           <Field label="Quantidade (kg)"><TextInput type="number" value={prod.qtdKg} onChange={(e) => setProd({ ...prod, qtdKg: e.target.value })} /></Field>
-          <Button type="submit">Registrar</Button>
+          <Field label="Peso por saco (kg)"><TextInput type="number" value={prod.pesoPorSaco} onChange={(e) => setProd({ ...prod, pesoPorSaco: e.target.value })} /></Field>
+          <div style={{ fontSize: 12, color: MUTED, paddingBottom: 8 }}>
+            {Number(prod.pesoPorSaco) > 0 && Number(prod.qtdKg) > 0 ? `≈ ${(Number(prod.qtdKg) / Number(prod.pesoPorSaco)).toFixed(1)} sacos` : "—"}
+          </div>
+          <div style={{ gridColumn: "1 / -1" }}><Button type="submit">Registrar</Button></div>
         </form>
       </Card>
 
@@ -1608,7 +1785,9 @@ function FabricaRacao({ db, update, filialId }) {
           columns={[
             { key: "data", label: "Data" },
             { key: "formulacaoId", label: "Formulação", render: (r) => formulacoes.find((f) => f.id === r.formulacaoId)?.nome || "—" },
+            { key: "moega", label: "Moega", render: (r) => r.moega || "—" },
             { key: "qtdKg", label: "Kg produzidos", render: (r) => r.qtdKg.toLocaleString("pt-BR") },
+            { key: "sacos", label: "Sacos", render: (r) => (r.sacos || 0).toFixed(1) },
             { key: "custoTotal", label: "Custo total", render: (r) => brl(r.custoTotal) },
           ]}
           rows={[...producoes].sort((a, b) => (a.data < b.data ? 1 : -1))}
@@ -1665,18 +1844,22 @@ function Compras({ db, update, filialId }) {
   const compras = db.compras.filter((c) => c.filialId === filialId);
   const produtos = db.produtos.filter((p) => p.filialId === filialId);
   const centrosCusto = db.centrosCusto.filter((c) => c.filialId === filialId);
-  const [form, setForm] = useState({ data: todayISO(), fornecedorId: "", categoria: "insumo", descricao: "", valor: "", condicaoPagamento: "boleto_30", centroCustoId: "" });
+  const [form, setForm] = useState({ data: todayISO(), fornecedorId: "", categoria: "insumo", descricao: "", valor: "", condicaoPagamento: "boleto_30", centroCustoId: "", produtoId: "", quantidade: "" });
   const [xmlPreview, setXmlPreview] = useState(null);
   const [xmlError, setXmlError] = useState("");
 
   function lancar(e) {
     e.preventDefault();
     const parcelas = gerarParcelas(form.condicaoPagamento || "boleto_30", Number(form.valor || 0), form.data);
+    const compraId = uid();
     update((prev) => ({
       ...prev,
-      compras: [...prev.compras, { id: uid(), filialId, data: form.data, fornecedorId: form.fornecedorId, categoria: form.categoria, descricao: form.descricao, valor: Number(form.valor), condicaoPagamento: form.condicaoPagamento, centroCustoId: form.centroCustoId, parcelas }],
+      compras: [...prev.compras, { id: compraId, filialId, data: form.data, fornecedorId: form.fornecedorId, categoria: form.categoria, descricao: form.descricao, valor: Number(form.valor), condicaoPagamento: form.condicaoPagamento, centroCustoId: form.centroCustoId, parcelas }],
+      movimentacoesEstoque: form.produtoId && Number(form.quantidade) > 0
+        ? [...prev.movimentacoesEstoque, { id: uid(), filialId, data: form.data, produtoId: form.produtoId, tipo: "entrada", qtd: Number(form.quantidade), motivo: form.descricao || "Compra", origem: "compra:" + compraId }]
+        : prev.movimentacoesEstoque,
     }));
-    setForm({ data: todayISO(), fornecedorId: "", categoria: "insumo", descricao: "", valor: "", condicaoPagamento: "boleto_30", centroCustoId: "" });
+    setForm({ data: todayISO(), fornecedorId: "", categoria: "insumo", descricao: "", valor: "", condicaoPagamento: "boleto_30", centroCustoId: "", produtoId: "", quantidade: "" });
   }
 
   function atualizarParcela(compraId, parcelaId, status) {
@@ -1769,6 +1952,8 @@ function Compras({ db, update, filialId }) {
           <Field label="Valor (R$)"><TextInput type="number" step="0.01" value={form.valor} onChange={(e) => setForm({ ...form, valor: e.target.value })} /></Field>
           <Field label="Condição de pagamento"><Select options={CONDICOES_PAGAMENTO} value={form.condicaoPagamento} onChange={(e) => setForm({ ...form, condicaoPagamento: e.target.value })} /></Field>
           <Field label="Centro de custo"><Select options={centrosCusto.map((c) => ({ value: c.id, label: c.nome }))} value={form.centroCustoId} onChange={(e) => setForm({ ...form, centroCustoId: e.target.value })} /></Field>
+          <Field label="Produto (dá entrada no estoque)"><Select options={produtos.map((p) => ({ value: p.id, label: `${p.nome} (${p.unidade})` }))} value={form.produtoId} onChange={(e) => setForm({ ...form, produtoId: e.target.value })} /></Field>
+          <Field label="Quantidade recebida"><TextInput type="number" step="0.01" value={form.quantidade} onChange={(e) => setForm({ ...form, quantidade: e.target.value })} /></Field>
           <div style={{ gridColumn: "1 / -1" }}><Button type="submit">Lançar compra</Button></div>
         </form>
       </Card>
@@ -2369,6 +2554,162 @@ function RelatorioGerencial({ db, update, filialId }) {
           emptyText="Nenhuma venda com comissão neste período."
         />
       </Card>
+    </div>
+  );
+}
+
+/* ---------------- Produção Avícola ---------------- */
+
+function ProducaoAvicola({ db, update, filialId }) {
+  const galpoes = db.galpoes.filter((g) => g.filialId === filialId);
+  const lotes = db.lotesAves.filter((l) => l.filialId === filialId);
+  const posturas = db.registrosPostura.filter((p) => p.filialId === filialId);
+  const mortalidades = db.registrosMortalidade.filter((m) => m.filialId === filialId);
+  const estercos = db.registrosEsterco.filter((e) => e.filialId === filialId);
+  const producoesRacao = db.producoesRacao.filter((p) => p.filialId === filialId);
+  const [tempoCriaRecria, setTempoCriaRecria] = useState(120);
+
+  const mortesDoLote = (loteId) => mortalidades.filter((m) => m.loteId === loteId).reduce((s, m) => s + Number(m.avesMortas || 0), 0);
+  const quantidadeAtual = (lote) => Math.max(0, Number(lote.quantidadeAlojada || 0) - mortesDoLote(lote.id));
+
+  const totalAvesVivas = lotes.reduce((s, l) => s + quantidadeAtual(l), 0);
+  const custoRacaoTotal = producoesRacao.reduce((s, p) => s + Number(p.custoTotal || 0), 0);
+  const custoPorAve = totalAvesVivas > 0 ? custoRacaoTotal / totalAvesVivas : 0;
+
+  const hoje = todayISO();
+  const ha30dias = new Date(new Date(hoje + "T00:00:00").getTime() - 30 * 86400000).toISOString().slice(0, 10);
+  const ovosHoje = posturas.filter((p) => p.data === hoje).reduce((s, p) => s + Number(p.ovosProduzidos || 0), 0);
+  const ovos30dias = posturas.filter((p) => p.data >= ha30dias).reduce((s, p) => s + Number(p.ovosProduzidos || 0), 0);
+  const quebras30dias = posturas.filter((p) => p.data >= ha30dias).reduce((s, p) => s + Number(p.ovosQuebrados || 0), 0);
+  const mortes30dias = mortalidades.filter((m) => m.data >= ha30dias).reduce((s, m) => s + Number(m.avesMortas || 0), 0);
+  const taxaQuebra = ovos30dias > 0 ? (quebras30dias / ovos30dias) * 100 : 0;
+
+  const estercoProduzido = estercos.filter((e) => e.tipo === "producao").reduce((s, e) => s + Number(e.quantidadeTon || 0), 0);
+  const estercoVendidoTon = estercos.filter((e) => e.tipo === "venda").reduce((s, e) => s + Number(e.quantidadeTon || 0), 0);
+  const estercoVendidoValor = estercos.filter((e) => e.tipo === "venda").reduce((s, e) => s + Number(e.valorVenda || 0), 0);
+  const estercoArmazenado = Math.max(0, estercoProduzido - estercoVendidoTon);
+
+  const alertasReposicao = lotes
+    .filter((l) => l.fase === "postura" && l.dataPrevistaDescarte)
+    .map((l) => {
+      const diasRestantes = Math.round((new Date(l.dataPrevistaDescarte + "T00:00:00") - new Date(hoje + "T00:00:00")) / 86400000);
+      const dataSugeridaCompra = new Date(new Date(l.dataPrevistaDescarte + "T00:00:00").getTime() - tempoCriaRecria * 86400000).toISOString().slice(0, 10);
+      return { ...l, diasRestantes, dataSugeridaCompra, quantidadeSugerida: l.quantidadeAlojada };
+    })
+    .filter((l) => l.diasRestantes <= tempoCriaRecria + 30)
+    .sort((a, b) => a.diasRestantes - b.diasRestantes);
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
+        <StatCard label="Aves vivas (todos os lotes)" value={totalAvesVivas.toLocaleString("pt-BR")} accent={GREEN} />
+        <StatCard label="Ovos produzidos hoje" value={ovosHoje.toLocaleString("pt-BR")} accent={GOLD} />
+        <StatCard label="Ovos — últimos 30 dias" value={ovos30dias.toLocaleString("pt-BR")} accent={GOLD} />
+        <StatCard label="Taxa de quebra (30 dias)" value={`${taxaQuebra.toFixed(1)}%`} accent={DANGER} />
+        <StatCard label="Aves mortas (30 dias)" value={mortes30dias.toLocaleString("pt-BR")} accent={DANGER} />
+        <StatCard label="Custo de ração por ave" value={brl(custoPorAve)} accent={MUTED} />
+        <StatCard label="Esterco armazenado" value={`${estercoArmazenado.toFixed(1)} ton`} accent={GREEN} />
+        <StatCard label="Esterco vendido (total)" value={`${estercoVendidoTon.toFixed(1)} ton · ${brl(estercoVendidoValor)}`} accent={GOLD} />
+      </div>
+
+      {!!alertasReposicao.length && (
+        <Card title="Planejamento de reposição de pintos de 1 dia" subtitle="Lotes em postura próximos do descarte — programe a compra considerando o tempo de cria e recria.">
+          <div style={{ display: "flex", gap: 10, alignItems: "end", marginBottom: 12 }}>
+            <Field label="Tempo de cria + recria (dias)"><TextInput type="number" value={tempoCriaRecria} onChange={(e) => setTempoCriaRecria(Number(e.target.value) || 0)} /></Field>
+          </div>
+          <Table
+            columns={[
+              { key: "codigo", label: "Lote" },
+              { key: "galpaoId", label: "Galpão", render: (r) => galpoes.find((g) => g.id === r.galpaoId)?.nome || "—" },
+              { key: "diasRestantes", label: "Dias até o descarte", render: (r) => (r.diasRestantes < 0 ? `${Math.abs(r.diasRestantes)} dias atrasado` : `${r.diasRestantes} dias`) },
+              { key: "quantidadeSugerida", label: "Qtd. sugerida de pintos", render: (r) => Number(r.quantidadeSugerida || 0).toLocaleString("pt-BR") },
+              { key: "dataSugeridaCompra", label: "Comprar até", render: (r) => r.dataSugeridaCompra.split("-").reverse().join("/") },
+            ]}
+            rows={alertasReposicao}
+          />
+        </Card>
+      )}
+
+      <CrudBlock
+        title="Galpões" subtitle="Estrutura física para alojamento dos lotes." filialId={filialId}
+        items={galpoes} onChange={(items) => update((prev) => ({ ...prev, galpoes: mergeByFilial(prev.galpoes, items, filialId) }))}
+        fields={[{ key: "nome", label: "Nome", required: true }, { key: "capacidade", label: "Capacidade (aves)", type: "number" }]}
+      />
+
+      <CrudBlock
+        title="Lotes de Aves" subtitle="Manejo, descarte e abate — quantidade atual já desconta as mortes registradas abaixo." filialId={filialId}
+        items={lotes} onChange={(items) => update((prev) => ({ ...prev, lotesAves: mergeByFilial(prev.lotesAves, items, filialId) }))}
+        fields={[
+          { key: "codigo", label: "Código do lote", required: true },
+          { key: "galpaoId", label: "Galpão", type: "select", options: galpoes.map((g) => ({ value: g.id, label: g.nome })) },
+          { key: "linhagem", label: "Linhagem" },
+          { key: "dataAlojamento", label: "Data de alojamento", type: "date" },
+          { key: "quantidadeAlojada", label: "Quantidade alojada", type: "number" },
+          { key: "fase", label: "Fase", type: "select", options: [{ value: "cria", label: "Cria" }, { value: "recria", label: "Recria" }, { value: "postura", label: "Postura" }, { value: "descarte", label: "Descarte/Abate" }] },
+          { key: "dataPrevistaDescarte", label: "Previsão de descarte", type: "date" },
+        ]}
+        columns={[
+          { key: "codigo", label: "Lote" },
+          { key: "galpaoId", label: "Galpão", render: (r) => galpoes.find((g) => g.id === r.galpaoId)?.nome || "—" },
+          { key: "fase", label: "Fase" },
+          { key: "quantidadeAlojada", label: "Alojada", render: (r) => Number(r.quantidadeAlojada || 0).toLocaleString("pt-BR") },
+          { key: "quantidadeAtual", label: "Atual (viva)", render: (r) => quantidadeAtual(r).toLocaleString("pt-BR") },
+          { key: "dataPrevistaDescarte", label: "Previsão descarte" },
+        ]}
+      />
+
+      <CrudBlock
+        title="Postura e quebras" subtitle="Produção diária ou por período, por lote." filialId={filialId}
+        items={posturas} onChange={(items) => update((prev) => ({ ...prev, registrosPostura: mergeByFilial(prev.registrosPostura, items, filialId) }))}
+        fields={[
+          { key: "data", label: "Data", type: "date", required: true },
+          { key: "loteId", label: "Lote", type: "select", options: lotes.map((l) => ({ value: l.id, label: l.codigo })) },
+          { key: "ovosProduzidos", label: "Ovos produzidos", type: "number" },
+          { key: "ovosQuebrados", label: "Ovos quebrados", type: "number" },
+        ]}
+        columns={[
+          { key: "data", label: "Data" },
+          { key: "loteId", label: "Lote", render: (r) => lotes.find((l) => l.id === r.loteId)?.codigo || "—" },
+          { key: "ovosProduzidos", label: "Produzidos", render: (r) => Number(r.ovosProduzidos || 0).toLocaleString("pt-BR") },
+          { key: "ovosQuebrados", label: "Quebrados", render: (r) => Number(r.ovosQuebrados || 0).toLocaleString("pt-BR") },
+        ]}
+      />
+
+      <CrudBlock
+        title="Mortalidade" subtitle="Aves mortas por período e por lote." filialId={filialId}
+        items={mortalidades} onChange={(items) => update((prev) => ({ ...prev, registrosMortalidade: mergeByFilial(prev.registrosMortalidade, items, filialId) }))}
+        fields={[
+          { key: "data", label: "Data", type: "date", required: true },
+          { key: "loteId", label: "Lote", type: "select", options: lotes.map((l) => ({ value: l.id, label: l.codigo })) },
+          { key: "avesMortas", label: "Aves mortas", type: "number" },
+          { key: "motivo", label: "Motivo" },
+        ]}
+        columns={[
+          { key: "data", label: "Data" },
+          { key: "loteId", label: "Lote", render: (r) => lotes.find((l) => l.id === r.loteId)?.codigo || "—" },
+          { key: "avesMortas", label: "Aves mortas", render: (r) => Number(r.avesMortas || 0).toLocaleString("pt-BR") },
+          { key: "motivo", label: "Motivo" },
+        ]}
+      />
+
+      <CrudBlock
+        title="Esterco — armazenado e vendido" subtitle="Registre a produção (entrada no armazém) e as vendas (saída)." filialId={filialId}
+        items={estercos} onChange={(items) => update((prev) => ({ ...prev, registrosEsterco: mergeByFilial(prev.registrosEsterco, items, filialId) }))}
+        fields={[
+          { key: "data", label: "Data", type: "date", required: true },
+          { key: "tipo", label: "Tipo", type: "select", options: [{ value: "producao", label: "Produção (armazenar)" }, { value: "venda", label: "Venda (saída)" }] },
+          { key: "quantidadeTon", label: "Quantidade (ton)", type: "number" },
+          { key: "valorVenda", label: "Valor da venda (R$)", type: "number" },
+          { key: "comprador", label: "Comprador" },
+        ]}
+        columns={[
+          { key: "data", label: "Data" },
+          { key: "tipo", label: "Tipo", render: (r) => (r.tipo === "venda" ? "Venda" : "Produção") },
+          { key: "quantidadeTon", label: "Qtd. (ton)", render: (r) => Number(r.quantidadeTon || 0).toFixed(1) },
+          { key: "valorVenda", label: "Valor", render: (r) => (r.tipo === "venda" ? brl(r.valorVenda) : "—") },
+          { key: "comprador", label: "Comprador" },
+        ]}
+      />
     </div>
   );
 }
