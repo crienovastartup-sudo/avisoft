@@ -99,6 +99,8 @@ const emptyDB = () => ({
   centrosCusto: [],
   contasAvulsas: [],
   movimentacoesEstoque: [],
+  funcionarios: [],
+  configsGerenciais: [],
 });
 
 const MODULES = [
@@ -115,6 +117,8 @@ const MODULES = [
   { key: "contabilidade", label: "Contabilidade", icon: "\u25A4" },
   { key: "logistica", label: "Logística", icon: "\u2692" },
   { key: "fiscal", label: "Fiscal (NFe/SPED)", icon: "\u2637" },
+  { key: "folha", label: "Folha de Pagamento", icon: "\u2696" },
+  { key: "relatorio", label: "Relatório Gerencial", icon: "\u25C9" },
 ];
 
 /* -------- condições de pagamento & parcelamento -------- */
@@ -268,6 +272,34 @@ function brl(v) {
 
 function todayISO() {
   return new Date().toISOString().slice(0, 10);
+}
+
+function primeiroDiaDoMes() {
+  return todayISO().slice(0, 8) + "01";
+}
+
+/* Lista de meses (YYYY-MM) entre duas datas ISO, inclusive. */
+function listaDeMeses(deISO, ateISO) {
+  const meses = [];
+  const d = new Date((deISO || todayISO()) + "T00:00:00");
+  const fim = new Date((ateISO || todayISO()) + "T00:00:00");
+  d.setDate(1);
+  let guard = 0;
+  while (d <= fim && guard < 240) {
+    meses.push(d.toISOString().slice(0, 7));
+    d.setMonth(d.getMonth() + 1);
+    guard++;
+  }
+  if (!meses.length) meses.push((deISO || todayISO()).slice(0, 7));
+  return meses;
+}
+function mesesNoPeriodo(deISO, ateISO) {
+  return listaDeMeses(deISO, ateISO).length;
+}
+function nomeMes(aaaaMm) {
+  const [ano, mes] = aaaaMm.split("-");
+  const nomes = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
+  return `${nomes[Number(mes) - 1]}/${ano.slice(2)}`;
 }
 
 /* ---------------- persistence helpers ---------------- */
@@ -957,6 +989,10 @@ function ModuleView({ activeModule, db, update, filialId, empresaId, usuario }) 
       return <Logistica db={db} update={update} filialId={filialId} />;
     case "fiscal":
       return <Fiscal db={db} update={update} filialId={filialId} />;
+    case "folha":
+      return <FolhaPagamento db={db} update={update} filialId={filialId} />;
+    case "relatorio":
+      return <RelatorioGerencial db={db} update={update} filialId={filialId} />;
     default:
       return null;
   }
@@ -2126,6 +2162,213 @@ function Fiscal({ db, update, filialId }) {
           </div>
         </Modal>
       )}
+    </div>
+  );
+}
+
+/* ---------------- Folha de Pagamento ---------------- */
+
+function FolhaPagamento({ db, update, filialId }) {
+  const funcionarios = db.funcionarios.filter((f) => f.filialId === filialId);
+  const ativos = funcionarios.filter((f) => f.ativo !== false && f.ativo !== "false");
+
+  const folhaBruta = ativos.reduce((s, f) => s + Number(f.salarioBruto || 0), 0);
+  const encargosTotal = ativos.reduce((s, f) => s + (Number(f.salarioBruto || 0) * Number(f.encargosPercentual || 0)) / 100, 0);
+  const beneficiosTotal = ativos.reduce((s, f) => s + Number(f.beneficios || 0), 0);
+  const folhaTotalMensal = folhaBruta + encargosTotal + beneficiosTotal;
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
+        <StatCard label="Salários brutos" value={brl(folhaBruta)} accent={GREEN} />
+        <StatCard label="Encargos" value={brl(encargosTotal)} accent={GOLD} />
+        <StatCard label="Benefícios" value={brl(beneficiosTotal)} accent={MUTED} />
+        <StatCard label="Folha total / mês" value={brl(folhaTotalMensal)} accent={DANGER} />
+      </div>
+      <CrudBlock
+        title="Funcionários"
+        subtitle="Encargos em % sobre o salário bruto (INSS patronal, FGTS, 13º/férias provisionados etc.). Colaboradores inativos não entram nos totais acima."
+        filialId={filialId}
+        items={funcionarios}
+        onChange={(items) => update((prev) => ({ ...prev, funcionarios: mergeByFilial(prev.funcionarios, items, filialId) }))}
+        fields={[
+          { key: "nome", label: "Nome", required: true },
+          { key: "cargo", label: "Cargo" },
+          { key: "salarioBruto", label: "Salário bruto (R$)", type: "number" },
+          { key: "encargosPercentual", label: "Encargos (%)", type: "number" },
+          { key: "beneficios", label: "Benefícios (R$)", type: "number" },
+          { key: "ativo", label: "Situação", type: "select", options: [{ value: "true", label: "Ativo" }, { value: "false", label: "Inativo" }] },
+        ]}
+        columns={[
+          { key: "nome", label: "Nome" },
+          { key: "cargo", label: "Cargo" },
+          { key: "salarioBruto", label: "Bruto", render: (r) => brl(r.salarioBruto) },
+          { key: "encargosPercentual", label: "Encargos", render: (r) => `${r.encargosPercentual || 0}%` },
+          { key: "beneficios", label: "Benefícios", render: (r) => brl(r.beneficios) },
+          { key: "ativo", label: "Situação", render: (r) => (r.ativo === false || r.ativo === "false" ? "Inativo" : "Ativo") },
+        ]}
+      />
+    </div>
+  );
+}
+
+/* ---------------- Relatório Gerencial ---------------- */
+
+function RelatorioGerencial({ db, update, filialId }) {
+  const vendasAll = db.vendas.filter((v) => v.filialId === filialId);
+  const comprasAll = db.compras.filter((c) => c.filialId === filialId);
+  const fretesAll = db.fretes.filter((f) => f.filialId === filialId);
+  const avulsasAll = db.contasAvulsas.filter((a) => a.filialId === filialId);
+  const funcionarios = db.funcionarios.filter((f) => f.filialId === filialId && f.ativo !== false && f.ativo !== "false");
+  const vendedores = db.vendedores.filter((v) => v.filialId === filialId);
+
+  const configSalva = db.configsGerenciais.find((c) => c.filialId === filialId) || { investimentoTotal: 0, aliquotaImposto: 34 };
+  const [config, setConfig] = useState({ investimentoTotal: configSalva.investimentoTotal || "", aliquotaImposto: configSalva.aliquotaImposto ?? 34 });
+  const [periodo, setPeriodo] = useState({ de: primeiroDiaDoMes(), ate: todayISO() });
+
+  function salvarConfig() {
+    update((prev) => ({ ...prev, configsGerenciais: [...prev.configsGerenciais.filter((c) => c.filialId !== filialId), { filialId, investimentoTotal: Number(config.investimentoTotal) || 0, aliquotaImposto: Number(config.aliquotaImposto) || 0 }] }));
+  }
+
+  const dentroPeriodo = (dataISO) => !!dataISO && dataISO >= periodo.de && dataISO <= periodo.ate;
+  const nMeses = mesesNoPeriodo(periodo.de, periodo.ate);
+
+  const vendas = vendasAll.filter((v) => dentroPeriodo(v.data));
+  const compras = comprasAll.filter((c) => dentroPeriodo(c.data));
+  const fretes = fretesAll.filter((f) => dentroPeriodo(f.data));
+  const avulsasPeriodo = avulsasAll.filter((a) => dentroPeriodo(a.vencimento));
+
+  const receitaVendas = vendas.reduce((s, v) => s + Number(v.total || 0), 0);
+  const receitasAvulsas = avulsasPeriodo.filter((a) => a.tipo === "receber").reduce((s, a) => s + Number(a.valor || 0), 0);
+  const receitaTotal = receitaVendas + receitasAvulsas;
+
+  const comissoes = vendas.reduce((s, v) => s + Number(v.comissaoValor || 0) + Number(v.comissaoGerenteValor || 0), 0);
+  const custoInsumos = compras.filter((c) => c.categoria === "insumo").reduce((s, c) => s + Number(c.valor || 0), 0);
+  const despesasAdm = compras.filter((c) => c.categoria === "administrativo").reduce((s, c) => s + Number(c.valor || 0), 0);
+  const manutencao = compras.filter((c) => c.categoria === "manutencao").reduce((s, c) => s + Number(c.valor || 0), 0);
+  const outrasCompras = compras.filter((c) => !["insumo", "administrativo", "manutencao"].includes(c.categoria)).reduce((s, c) => s + Number(c.valor || 0), 0);
+  const despesasFrete = fretes.reduce((s, f) => s + Number(f.valorFrete || 0), 0);
+  const despesasAvulsas = avulsasPeriodo.filter((a) => a.tipo === "pagar").reduce((s, a) => s + Number(a.valor || 0), 0);
+
+  const folhaMensal = funcionarios.reduce((s, f) => s + Number(f.salarioBruto || 0) + (Number(f.salarioBruto || 0) * Number(f.encargosPercentual || 0)) / 100 + Number(f.beneficios || 0), 0);
+  const folhaPeriodo = folhaMensal * nMeses;
+
+  const custosOperacionais = custoInsumos + despesasAdm + manutencao + outrasCompras + despesasFrete + comissoes + despesasAvulsas + folhaPeriodo;
+  const ebitda = receitaTotal - custosOperacionais;
+  const margemEbitda = receitaTotal > 0 ? (ebitda / receitaTotal) * 100 : 0;
+  const impostoEstimado = ebitda > 0 ? ebitda * (Number(config.aliquotaImposto || 0) / 100) : 0;
+  const lucroLiquido = ebitda - impostoEstimado;
+
+  const investimento = Number(config.investimentoTotal) || 0;
+  const roi = investimento > 0 ? (lucroLiquido / investimento) * 100 : null;
+  const lucroMedioMensal = lucroLiquido / nMeses;
+  const paybackMeses = investimento > 0 && lucroMedioMensal > 0 ? investimento / lucroMedioMensal : null;
+
+  // Fluxo de caixa projetado (por vencimento das parcelas, todo o histórico dentro do período de meses)
+  const meses = listaDeMeses(periodo.de, periodo.ate);
+  let acumulado = 0;
+  const fluxo = meses.map((mes) => {
+    const entradasVendas = vendasAll.flatMap((v) => v.parcelas || []).filter((p) => p.vencimento && p.vencimento.startsWith(mes)).reduce((s, p) => s + Number(p.valor || 0), 0);
+    const entradasAvulsas = avulsasAll.filter((a) => a.tipo === "receber" && a.vencimento && a.vencimento.startsWith(mes)).reduce((s, a) => s + Number(a.valor || 0), 0);
+    const saidasCompras = comprasAll.flatMap((c) => c.parcelas || []).filter((p) => p.vencimento && p.vencimento.startsWith(mes)).reduce((s, p) => s + Number(p.valor || 0), 0);
+    const saidasFretes = fretesAll.filter((f) => f.data && f.data.startsWith(mes)).reduce((s, f) => s + Number(f.valorFrete || 0), 0);
+    const saidasAvulsas = avulsasAll.filter((a) => a.tipo === "pagar" && a.vencimento && a.vencimento.startsWith(mes)).reduce((s, a) => s + Number(a.valor || 0), 0);
+    const entradas = entradasVendas + entradasAvulsas;
+    const saidas = saidasCompras + saidasFretes + saidasAvulsas + folhaMensal;
+    const saldo = entradas - saidas;
+    acumulado += saldo;
+    return { mes, entradas, saidas, saldo, acumulado };
+  });
+
+  const comissoesPorVendedor = vendedores.map((vend) => {
+    const proprias = vendasAll.filter((v) => v.vendedorId === vend.id && dentroPeriodo(v.data));
+    const comoGerente = vendasAll.filter((v) => v.gerenteComercialId === vend.id && dentroPeriodo(v.data));
+    const comissaoPropria = proprias.reduce((s, v) => s + Number(v.comissaoValor || 0), 0);
+    const comissaoGerente = comoGerente.reduce((s, v) => s + Number(v.comissaoGerenteValor || 0), 0);
+    return { ...vend, totalVendido: proprias.reduce((s, v) => s + Number(v.total || 0), 0), comissaoPropria, comissaoGerente, comissaoTotal: comissaoPropria + comissaoGerente };
+  }).filter((v) => v.totalVendido > 0 || v.comissaoTotal > 0);
+
+  const linha = (label, valor, bold, indent) => (
+    <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: `1px solid ${BORDER}`, fontWeight: bold ? 800 : 500, paddingLeft: indent ? 16 : 0, color: bold ? GREEN : INK, fontSize: bold ? 14 : 13 }}>
+      <span>{label}</span><span>{brl(valor)}</span>
+    </div>
+  );
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div style={{ background: "#FBF3DC", border: `1px solid ${GOLD_LIGHT}`, borderRadius: 10, padding: "10px 14px", fontSize: 12.5, color: "#6B5410" }}>
+        Relatório calculado a partir dos lançamentos reais desta filial no período selecionado. Impostos, ROI e payback são estimativas gerenciais simplificadas (sem compensação de prejuízo fiscal, sem a trava legal de 30%, sem depreciação de ativos) — para uma apuração tributária real, consulte seu contador.
+      </div>
+
+      <Card title="Período do relatório">
+        <div style={{ display: "flex", gap: 12, alignItems: "end", flexWrap: "wrap" }}>
+          <Field label="De"><TextInput type="date" value={periodo.de} onChange={(e) => setPeriodo({ ...periodo, de: e.target.value })} /></Field>
+          <Field label="Até"><TextInput type="date" value={periodo.ate} onChange={(e) => setPeriodo({ ...periodo, ate: e.target.value })} /></Field>
+          <div style={{ fontSize: 12, color: MUTED, paddingBottom: 8 }}>{nMeses} mês(es) considerado(s) — a folha de pagamento é multiplicada por esse número de meses.</div>
+        </div>
+      </Card>
+
+      <Card title="Parâmetros para ROI, payback e impostos">
+        <div style={{ display: "flex", gap: 12, alignItems: "end", flexWrap: "wrap" }}>
+          <Field label="Investimento total (R$)"><TextInput type="number" step="0.01" value={config.investimentoTotal} onChange={(e) => setConfig({ ...config, investimentoTotal: e.target.value })} /></Field>
+          <Field label="Alíquota de imposto sobre o lucro (%)"><TextInput type="number" step="0.1" value={config.aliquotaImposto} onChange={(e) => setConfig({ ...config, aliquotaImposto: e.target.value })} /></Field>
+          <Button onClick={salvarConfig}>Salvar parâmetros</Button>
+        </div>
+      </Card>
+
+      <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
+        <StatCard label="Receita no período" value={brl(receitaTotal)} accent={GREEN} />
+        <StatCard label="EBITDA" value={brl(ebitda)} accent={GOLD} />
+        <StatCard label="Margem EBITDA" value={`${margemEbitda.toFixed(1)}%`} accent={MUTED} />
+        <StatCard label="Impostos estimados" value={brl(impostoEstimado)} accent={DANGER} />
+        <StatCard label="Lucro líquido estimado" value={brl(lucroLiquido)} accent={GREEN} />
+        <StatCard label="Folha de pagamento (período)" value={brl(folhaPeriodo)} accent={MUTED} />
+        <StatCard label="ROI no período" value={roi === null ? "—" : `${roi.toFixed(1)}%`} accent={GOLD} />
+        <StatCard label="Payback estimado" value={paybackMeses === null ? "—" : `${paybackMeses.toFixed(1)} meses`} accent={DANGER} />
+      </div>
+
+      <Card title="EBITDA — Demonstrativo gerencial">
+        {linha("Receita de vendas", receitaVendas)}
+        {linha("(+) Receitas avulsas", receitasAvulsas, false, true)}
+        {linha("(-) Comissões (vendedor + gerente)", -comissoes, false, true)}
+        {linha("(-) Insumos e ração", -custoInsumos, false, true)}
+        {linha("(-) Despesas administrativas", -despesasAdm, false, true)}
+        {linha("(-) Manutenção", -manutencao, false, true)}
+        {linha("(-) Fretes e logística", -despesasFrete, false, true)}
+        {linha("(-) Outras despesas de compra", -outrasCompras, false, true)}
+        {linha("(-) Despesas avulsas", -despesasAvulsas, false, true)}
+        {linha("(-) Folha de pagamento", -folhaPeriodo, false, true)}
+        <div style={{ marginTop: 6 }}>{linha("EBITDA", ebitda, true)}</div>
+        {linha(`(-) Impostos estimados (${config.aliquotaImposto || 0}% sobre o lucro)`, -impostoEstimado, false, true)}
+        <div style={{ marginTop: 6 }}>{linha("Lucro líquido estimado", lucroLiquido, true)}</div>
+      </Card>
+
+      <Card title="Fluxo de caixa projetado" subtitle="Entradas e saídas por mês de vencimento das parcelas — folha de pagamento tratada como custo fixo mensal.">
+        <Table
+          columns={[
+            { key: "mes", label: "Mês", render: (r) => nomeMes(r.mes) },
+            { key: "entradas", label: "Entradas", render: (r) => brl(r.entradas) },
+            { key: "saidas", label: "Saídas", render: (r) => brl(r.saidas) },
+            { key: "saldo", label: "Saldo do mês", render: (r) => brl(r.saldo) },
+            { key: "acumulado", label: "Saldo acumulado", render: (r) => brl(r.acumulado) },
+          ]}
+          rows={fluxo}
+        />
+      </Card>
+
+      <Card title="Relatório de comissões" subtitle="Comissão própria (como vendedor) e comissão como gerente comercial, dentro do período selecionado.">
+        <Table
+          columns={[
+            { key: "nome", label: "Vendedor", render: (r) => r.apelido || r.nomeCompleto },
+            { key: "totalVendido", label: "Total vendido", render: (r) => brl(r.totalVendido) },
+            { key: "comissaoPropria", label: "Comissão própria", render: (r) => brl(r.comissaoPropria) },
+            { key: "comissaoGerente", label: "Comissão como gerente", render: (r) => brl(r.comissaoGerente) },
+            { key: "comissaoTotal", label: "Total a pagar", render: (r) => brl(r.comissaoTotal) },
+          ]}
+          rows={comissoesPorVendedor}
+          emptyText="Nenhuma venda com comissão neste período."
+        />
+      </Card>
     </div>
   );
 }
