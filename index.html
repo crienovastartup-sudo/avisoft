@@ -544,7 +544,7 @@ function Onboarding({ onCreate }) {
           <Field label="CNPJ"><TextInput value={form.cnpj} onChange={(e) => setForm({ ...form, cnpj: e.target.value })} /></Field>
           <Field label="Endereço"><TextInput value={form.endereco} onChange={(e) => setForm({ ...form, endereco: e.target.value })} /></Field>
           <Field label="Telefone"><TextInput value={form.telefone} onChange={(e) => setForm({ ...form, telefone: e.target.value })} /></Field>
-          <Field label="Responsável"><TextInput value={form.responsavel} onChange={(e) => setForm({ ...form, responsavel: e.target.value })} /></Field>
+          <Field label="Responsável"><TextInput value={form.responsavel} onChange={(e) => setForm({ ...form, responsavel: e.target.value })} style={{ gridColumn: "1 / -1" }} /></Field>
         </div>
         <div style={{ height: 1, background: BORDER, margin: "4px 0" }} />
         <div style={{ fontSize: 13, fontWeight: 700, color: GREEN }}>Usuário administrador</div>
