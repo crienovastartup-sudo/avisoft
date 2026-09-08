@@ -57,7 +57,7 @@
 </script>
 
 <script type="text/babel" data-presets="react" data-type="module">
-const { useState, useEffect, useCallback, Component } = React;
+const { useState, useEffect, useRef, Component } = React;
 
 /* ============================================================
    AVISOFT — ERP para granjas de postura comercial
@@ -79,8 +79,6 @@ const INK = "#1F2A24";
 const MUTED = "#647169";
 const DANGER = "#B5482C";
 const SUCCESS = "#2F7D4F";
-
-const STORAGE_KEY = "avisoft-db-v1";
 
 const emptyDB = () => ({
   empresas: [],
@@ -125,6 +123,7 @@ const MODULES = [
   { key: "folha", label: "Folha de Pagamento", icon: "\u2696" },
   { key: "relatorio", label: "Relatório Gerencial", icon: "\u25C9" },
   { key: "producao", label: "Produção Avícola", icon: "\u2696" },
+  { key: "sensores", label: "Sensores / IoT", icon: "\u2699" },
 ];
 
 /* -------- condições de pagamento & parcelamento -------- */
@@ -314,35 +313,88 @@ function hasStorage() {
   return typeof window !== "undefined" && !!window.storage && typeof window.storage.get === "function";
 }
 
-async function loadDB() {
-  if (!hasStorage()) return emptyDB();
-  try {
-    const res = await window.storage.get(STORAGE_KEY, false);
-    if (res && res.value) {
-      const parsed = JSON.parse(res.value);
-      return { ...emptyDB(), ...parsed, empresas: Array.isArray(parsed.empresas) ? parsed.empresas : [] };
-    }
-  } catch (e) {
-    // chave inexistente na primeira execução, ou armazenamento indisponível — começa vazio
-  }
-  return emptyDB();
-}
+/* Config de conexão (URL do Apps Script + chave de API) — isso sim fica local
+   em cada dispositivo, pois cada um precisa saber a qual planilha se conectar.
+   Os DADOS do sistema (vendas, produtos etc.) não ficam mais aqui — vivem na
+   planilha do Google Sheets, acessada via apiLoadDB/apiSaveDB abaixo. */
+const CONN_KEY = "avisoft-conn-v1";
 
-async function saveDB(db) {
+async function loadConnection() {
+  if (!hasStorage()) return null;
+  try {
+    const res = await window.storage.get(CONN_KEY, false);
+    if (res && res.value) return JSON.parse(res.value);
+  } catch (e) { /* ainda não configurado */ }
+  return null;
+}
+async function saveConnection(conn) {
   if (!hasStorage()) return false;
-  try {
-    await window.storage.set(STORAGE_KEY, JSON.stringify(db), false);
-    return true;
-  } catch (e) {
-    console.error("AVISOFT: falha ao salvar", e);
-    return false;
-  }
+  try { await window.storage.set(CONN_KEY, JSON.stringify(conn), false); return true; } catch (e) { return false; }
+}
+async function clearConnection() {
+  if (hasStorage()) { try { await window.storage.delete(CONN_KEY, false); } catch (e) { /* ignore */ } }
 }
 
-async function resetDB() {
-  if (hasStorage()) {
-    try { await window.storage.delete(STORAGE_KEY, false); } catch (e) { /* ignore */ }
+function traduzErroApi(codigo) {
+  const mapa = {
+    unauthorized: "Chave de API incorreta, ou API_KEY não configurada no Apps Script.",
+    invalid_json: "O servidor não entendeu os dados enviados.",
+    unknown_action: "Ação não reconhecida pelo servidor.",
+    credenciais_invalidas: "Login ou senha incorretos.",
+  };
+  return mapa[codigo] || codigo || "Erro desconhecido.";
+}
+
+/* Lê o banco de dados inteiro da planilha (uma aba por coleção). */
+async function apiLoadDB(conn) {
+  const sep = conn.apiUrl.indexOf("?") >= 0 ? "&" : "?";
+  const url = conn.apiUrl + sep + "apiKey=" + encodeURIComponent(conn.apiKey);
+  const res = await fetch(url, { method: "GET" });
+  if (!res.ok) throw new Error("Falha de rede (HTTP " + res.status + ")");
+  const json = await res.json();
+  if (json.error) throw new Error(traduzErroApi(json.error));
+  const db = json.db || {};
+  return { ...emptyDB(), ...db, empresas: Array.isArray(db.empresas) ? db.empresas : [] };
+}
+
+/* Grava só o que mudou (comparando referências com o último estado sincronizado)
+   — evita reescrever as 22 abas a cada clique. Na primeira gravação, envia tudo. */
+async function apiSaveDB(conn, next, prev) {
+  let payload;
+  if (!prev) {
+    payload = { apiKey: conn.apiKey, action: "saveAll", db: next };
+  } else {
+    const changed = {};
+    Object.keys(next).forEach((k) => { if (next[k] !== prev[k]) changed[k] = next[k]; });
+    if (!Object.keys(changed).length) return true;
+    payload = { apiKey: conn.apiKey, action: "saveSome", collections: changed };
   }
+  const res = await fetch(conn.apiUrl, {
+    method: "POST",
+    headers: { "Content-Type": "text/plain;charset=utf-8" }, // evita preflight CORS com o Apps Script
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error("Falha de rede (HTTP " + res.status + ")");
+  const json = await res.json();
+  if (json.error) throw new Error(traduzErroApi(json.error));
+  return true;
+}
+
+/* Leituras de sensores/hardware — série histórica, não faz parte do db sincronizado. */
+async function apiGetSensores(conn, filialId) {
+  const sep = conn.apiUrl.indexOf("?") >= 0 ? "&" : "?";
+  const url = conn.apiUrl + sep + "apiKey=" + encodeURIComponent(conn.apiKey) + "&action=sensores&filialId=" + encodeURIComponent(filialId || "");
+  const res = await fetch(url);
+  if (!res.ok) throw new Error("Falha de rede (HTTP " + res.status + ")");
+  const json = await res.json();
+  if (json.error) throw new Error(traduzErroApi(json.error));
+  return json.leituras || [];
+}
+
+async function hashPassword(texto) {
+  const dados = new TextEncoder().encode(String(texto || ""));
+  const buffer = await crypto.subtle.digest("SHA-256", dados);
+  return Array.from(new Uint8Array(buffer)).map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
 /* ---------------- small UI primitives ---------------- */
@@ -729,7 +781,7 @@ class ErrorBoundary extends Component {
             <pre style={{ background: BG, padding: 12, borderRadius: 8, fontSize: 11.5, whiteSpace: "pre-wrap", color: INK, maxHeight: 200, overflow: "auto" }}>{String(this.state.error?.message || this.state.error)}</pre>
             <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
               <Button onClick={() => this.setState({ error: null })}>Tentar de novo</Button>
-              <Button variant="danger" onClick={async () => { await resetDB(); window.location.reload ? window.location.reload() : this.setState({ error: null }); }}>Limpar dados e recomeçar</Button>
+              <Button variant="danger" onClick={async () => { await clearConnection(); window.location.reload ? window.location.reload() : this.setState({ error: null }); }}>Esquecer conexão e reconfigurar</Button>
             </div>
           </div>
         </div>
@@ -752,39 +804,74 @@ export default function AvisoftRoot() {
 }
 
 function AvisoftApp() {
+  const [conn, setConn] = useState(undefined); // undefined = ainda não verificou; null = não configurado
   const [db, setDb] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [saveError, setSaveError] = useState(false);
+  const [connError, setConnError] = useState("");
+  const [saveError, setSaveError] = useState("");
   const [session, setSession] = useState(null); // { usuarioId, empresaId, filialId }
   const [activeModule, setActiveModule] = useState("inicio");
+  const lastSynced = useRef(null); // último db confirmado como salvo, para diff nas próximas gravações
 
   useEffect(() => {
-    loadDB().then((data) => { setDb(data); setLoading(false); });
+    loadConnection().then((c) => setConn(c));
   }, []);
 
-  const persist = useCallback((next) => {
-    setDb(next);
-    saveDB(next).then((ok) => setSaveError(!ok));
-  }, []);
+  useEffect(() => {
+    if (conn === undefined) return; // ainda carregando a config de conexão
+    if (!conn) { setLoading(false); return; }
+    setLoading(true);
+    setConnError("");
+    apiLoadDB(conn)
+      .then((data) => { setDb(data); lastSynced.current = data; setLoading(false); })
+      .catch((err) => { setConnError(err.message || String(err)); setLoading(false); });
+  }, [conn]);
 
   function update(patchFn) {
     setDb((prev) => {
       const next = patchFn(prev);
-      saveDB(next).then((ok) => setSaveError(!ok));
+      apiSaveDB(conn, next, lastSynced.current)
+        .then(() => { lastSynced.current = next; setSaveError(""); })
+        .catch((err) => setSaveError(err.message || String(err)));
       return next;
     });
   }
 
-  if (loading) {
+  if (conn === undefined || (conn && loading)) {
     return (
       <div style={shell()}>
-        <div style={{ margin: "auto", color: MUTED, fontSize: 14 }}>Carregando AVISOFT…</div>
+        <div style={{ margin: "auto", color: MUTED, fontSize: 14 }}>Conectando à planilha…</div>
       </div>
     );
   }
 
+  if (!conn) {
+    return <ConexaoSetup onConectado={(c) => setConn(c)} />;
+  }
+
+  if (connError) {
+    return (
+      <div style={{ ...shell(), justifyContent: "center", alignItems: "center", padding: 24 }}>
+        <div style={{ background: CARD, border: `1px solid ${DANGER}`, borderRadius: 12, padding: 24, maxWidth: 520 }}>
+          <div style={{ fontSize: 16, fontWeight: 800, color: DANGER, marginBottom: 8 }}>Não consegui carregar os dados da planilha</div>
+          <div style={{ fontSize: 12.5, color: MUTED, marginBottom: 12 }}>{connError}</div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <Button onClick={() => setConn({ ...conn })}>Tentar de novo</Button>
+            <Button variant="danger" onClick={async () => { await clearConnection(); setConn(null); }}>Reconfigurar conexão</Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!db) return null;
+
   if (!db.empresas.length) {
-    return <Onboarding onCreate={(payload) => { persist(payload.db); setSession(payload.session); }} />;
+    return <Onboarding onCreate={async (payload) => {
+      setDb(payload.db);
+      try { await apiSaveDB(conn, payload.db, null); lastSynced.current = payload.db; } catch (err) { setSaveError(err.message || String(err)); }
+      setSession(payload.session);
+    }} />;
   }
 
   if (!session) {
@@ -799,8 +886,8 @@ function AvisoftApp() {
   return (
     <div style={shell()}>
       {saveError && (
-        <div style={{ position: "fixed", top: 10, right: 10, background: DANGER, color: "#fff", padding: "8px 14px", borderRadius: 8, fontSize: 12.5, zIndex: 50 }}>
-          Não foi possível salvar automaticamente. Suas últimas alterações podem não ter sido gravadas.
+        <div style={{ position: "fixed", top: 10, right: 10, background: DANGER, color: "#fff", padding: "8px 14px", borderRadius: 8, fontSize: 12.5, zIndex: 50, maxWidth: 360 }}>
+          Não foi possível salvar na planilha: {saveError}
         </div>
       )}
       <Sidebar
@@ -819,6 +906,7 @@ function AvisoftApp() {
           activeModule={activeModule}
           db={db}
           update={update}
+          conn={conn}
           filialId={session.filialId}
           empresaId={session.empresaId}
           usuario={usuario}
@@ -840,12 +928,56 @@ function shell() {
 
 /* ---------------- Onboarding (first run) ---------------- */
 
+/* ---------------- Configuração de conexão (Google Sheets) ---------------- */
+
+function ConexaoSetup({ onConectado }) {
+  const [apiUrl, setApiUrl] = useState("");
+  const [apiKey, setApiKey] = useState("");
+  const [testando, setTestando] = useState(false);
+  const [erro, setErro] = useState("");
+
+  async function testarEConectar(e) {
+    e.preventDefault();
+    setErro(""); setTestando(true);
+    const conn = { apiUrl: apiUrl.trim(), apiKey: apiKey.trim() };
+    try {
+      await apiLoadDB(conn); // só para validar que a conexão funciona
+      await saveConnection(conn);
+      onConectado(conn);
+    } catch (err) {
+      setErro(err.message || String(err));
+    } finally {
+      setTestando(false);
+    }
+  }
+
+  return (
+    <div style={{ ...shell(), justifyContent: "center", alignItems: "center" }}>
+      <form onSubmit={testarEConectar} style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 14, padding: 32, width: 560, display: "flex", flexDirection: "column", gap: 16 }}>
+        <div>
+          <div style={{ fontSize: 12, fontWeight: 800, color: GOLD, letterSpacing: 1 }}>CONECTAR AO</div>
+          <div style={{ fontSize: 26, fontWeight: 800, color: GREEN }}>Google Sheets</div>
+          <div style={{ fontSize: 12.5, color: MUTED, marginTop: 4 }}>O AVISOFT usa sua planilha do Google como banco de dados. Cole abaixo a URL do Web App e a chave de API geradas ao implantar o script — veja o arquivo Code.gs para o passo a passo.</div>
+        </div>
+        <Field label="URL do aplicativo da Web (Apps Script)">
+          <TextInput placeholder="https://script.google.com/macros/s/AKfycb.../exec" value={apiUrl} onChange={(e) => setApiUrl(e.target.value)} />
+        </Field>
+        <Field label="Chave de API (API_KEY definida no script)">
+          <TextInput type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} />
+        </Field>
+        {erro && <div style={{ background: "#FBEAE4", border: `1px solid ${DANGER}55`, borderRadius: 8, padding: 10, color: DANGER, fontSize: 12.5 }}>{erro}</div>}
+        <Button type="submit" disabled={testando}>{testando ? "Testando conexão…" : "Testar e conectar"}</Button>
+      </form>
+    </div>
+  );
+}
+
 function Onboarding({ onCreate }) {
   const [form, setForm] = useState({ nome: "", cnpj: "", endereco: "", telefone: "", responsavel: "", adminNome: "", adminLogin: "", adminSenha: "" });
   const [erro, setErro] = useState("");
   const [enviando, setEnviando] = useState(false);
 
-  function submit(e) {
+  async function submit(e) {
     e.preventDefault();
     setErro("");
     if (!form.nome || !form.adminNome || !form.adminLogin || !form.adminSenha) {
@@ -857,6 +989,7 @@ function Onboarding({ onCreate }) {
       const empresaId = uid();
       const filialId = uid();
       const usuarioId = uid();
+      const senhaHash = await hashPassword(form.adminSenha);
       const db = {
         ...emptyDB(),
         empresas: [{
@@ -872,7 +1005,7 @@ function Onboarding({ onCreate }) {
           id: usuarioId,
           nome: form.adminNome,
           login: form.adminLogin,
-          senha: form.adminSenha,
+          senhaHash,
           empresaId,
           admin: true,
           permissoes: MODULES.map((m) => m.key),
@@ -921,11 +1054,14 @@ function Login({ db, onLogin }) {
   const [login, setLogin] = useState("");
   const [senha, setSenha] = useState("");
   const [erro, setErro] = useState("");
+  const [entrando, setEntrando] = useState(false);
 
-  function submit(e) {
+  async function submit(e) {
     e.preventDefault();
-    const usuario = db.usuarios.find((u) => u.login === login && u.senha === senha && u.ativo !== false);
-    if (!usuario) { setErro("Login ou senha incorretos."); return; }
+    setEntrando(true);
+    const senhaHash = await hashPassword(senha);
+    const usuario = db.usuarios.find((u) => u.login === login && u.senhaHash === senhaHash && u.ativo !== false && u.ativo !== "false");
+    if (!usuario) { setErro("Login ou senha incorretos."); setEntrando(false); return; }
     const empresa = db.empresas.find((e) => e.id === usuario.empresaId) || db.empresas[0];
     const filial = empresa.filiais[0];
     onLogin({ usuarioId: usuario.id, empresaId: empresa.id, filialId: filial.id });
@@ -939,7 +1075,7 @@ function Login({ db, onLogin }) {
         <Field label="Login"><TextInput autoFocus value={login} onChange={(e) => setLogin(e.target.value)} /></Field>
         <Field label="Senha"><TextInput type="password" value={senha} onChange={(e) => setSenha(e.target.value)} /></Field>
         {erro && <div style={{ color: DANGER, fontSize: 12.5 }}>{erro}</div>}
-        <Button type="submit">Entrar</Button>
+        <Button type="submit" disabled={entrando}>{entrando ? "Entrando…" : "Entrar"}</Button>
       </form>
     </div>
   );
@@ -994,7 +1130,7 @@ function Sidebar({ modules, active, onSelect, empresa, filial, empresas, onSwitc
 
 /* ---------------- Module router ---------------- */
 
-function ModuleView({ activeModule, db, update, filialId, empresaId, usuario }) {
+function ModuleView({ activeModule, db, update, conn, filialId, empresaId, usuario }) {
   const set = (key) => (items) => update((prev) => ({ ...prev, [key]: mergeByFilial(prev[key], items, filialId) }));
   const scoped = (key) => db[key].filter((r) => r.filialId === filialId);
 
@@ -1066,6 +1202,8 @@ function ModuleView({ activeModule, db, update, filialId, empresaId, usuario }) 
       return <RelatorioGerencial db={db} update={update} filialId={filialId} />;
     case "producao":
       return <ProducaoAvicola db={db} update={update} filialId={filialId} />;
+    case "sensores":
+      return <SensoresIoT conn={conn} db={db} filialId={filialId} />;
     default:
       return null;
   }
@@ -1317,21 +1455,29 @@ function Usuarios({ db, update, empresaId }) {
   const usuarios = db.usuarios.filter((u) => u.empresaId === empresaId);
   const blank = { id: null, nome: "", login: "", senha: "", admin: false, permissoes: [], ativo: true };
   const [draft, setDraft] = useState(blank);
+  const [enviando, setEnviando] = useState(false);
   const editing = !!draft.id;
 
   function togglePerm(key) {
     setDraft((d) => ({ ...d, permissoes: d.permissoes.includes(key) ? d.permissoes.filter((p) => p !== key) : [...d.permissoes, key] }));
   }
 
-  function submit(e) {
+  async function submit(e) {
     e.preventDefault();
+    setEnviando(true);
+    const { senha, ...rest } = draft;
+    let senhaHash = draft.senhaHash;
+    if (senha) senhaHash = await hashPassword(senha);
+    if (!editing && !senhaHash) { setEnviando(false); return; } // senha obrigatória ao criar
+    const registro = { ...rest, senhaHash };
     update((prev) => ({
       ...prev,
       usuarios: editing
-        ? prev.usuarios.map((u) => (u.id === draft.id ? draft : u))
-        : [...prev.usuarios, { ...draft, id: uid(), empresaId }],
+        ? prev.usuarios.map((u) => (u.id === draft.id ? registro : u))
+        : [...prev.usuarios, { ...registro, id: uid(), empresaId }],
     }));
     setDraft(blank);
+    setEnviando(false);
   }
 
   function remove(u) {
@@ -1342,12 +1488,12 @@ function Usuarios({ db, update, empresaId }) {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      <Card title={editing ? "Editar usuário" : "Novo usuário"} subtitle="Defina quais módulos cada pessoa pode acessar.">
+      <Card title={editing ? "Editar usuário" : "Novo usuário"} subtitle="Defina quais módulos cada pessoa pode acessar. As senhas são armazenadas com hash (SHA-256), nunca em texto puro.">
         <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
             <Field label="Nome"><TextInput value={draft.nome} onChange={(e) => setDraft({ ...draft, nome: e.target.value })} /></Field>
             <Field label="Login"><TextInput value={draft.login} onChange={(e) => setDraft({ ...draft, login: e.target.value })} /></Field>
-            <Field label="Senha"><TextInput type="password" value={draft.senha} onChange={(e) => setDraft({ ...draft, senha: e.target.value })} /></Field>
+            <Field label={editing ? "Nova senha (deixe em branco para manter)" : "Senha"}><TextInput type="password" value={draft.senha || ""} onChange={(e) => setDraft({ ...draft, senha: e.target.value })} /></Field>
           </div>
           <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, fontWeight: 600, color: INK }}>
             <input type="checkbox" checked={draft.admin} onChange={(e) => setDraft({ ...draft, admin: e.target.checked })} />
@@ -1367,7 +1513,7 @@ function Usuarios({ db, update, empresaId }) {
             </div>
           )}
           <div style={{ display: "flex", gap: 8 }}>
-            <Button type="submit">{editing ? "Salvar alteração" : "Criar usuário"}</Button>
+            <Button type="submit" disabled={enviando}>{editing ? "Salvar alteração" : "Criar usuário"}</Button>
             {editing && <Button type="button" variant="ghost" onClick={() => setDraft(blank)}>Cancelar</Button>}
           </div>
         </form>
@@ -2710,6 +2856,63 @@ function ProducaoAvicola({ db, update, filialId }) {
           { key: "comprador", label: "Comprador" },
         ]}
       />
+    </div>
+  );
+}
+
+/* ---------------- Sensores / IoT ---------------- */
+
+function SensoresIoT({ conn, db, filialId }) {
+  const galpoes = db.galpoes.filter((g) => g.filialId === filialId);
+  const [leituras, setLeituras] = useState(null);
+  const [erro, setErro] = useState("");
+  const [carregando, setCarregando] = useState(false);
+
+  function buscar() {
+    setCarregando(true); setErro("");
+    apiGetSensores(conn, filialId)
+      .then((r) => setLeituras(r))
+      .catch((e) => setErro(e.message || String(e)))
+      .finally(() => setCarregando(false));
+  }
+
+  useEffect(() => { buscar(); }, [filialId]);
+
+  const exemploPayload = JSON.stringify({
+    apiKey: "sua-chave-aqui",
+    action: "hardware",
+    deviceId: "sensor-galpao-1-temp",
+    filialId,
+    galpaoId: galpoes[0]?.id || "<id-do-galpao>",
+    tipo: "temperatura",
+    valor: 27.4,
+    unidade: "C",
+  }, null, 2);
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div style={{ background: "#EDE7F6", border: "1px solid #C9B8E8", borderRadius: 10, padding: "12px 14px", fontSize: 12.5, color: "#4A3A70" }}>
+        Este módulo lê as leituras enviadas por sensores/hardware de galpão (temperatura, umidade, amônia, peso, consumo de água/ração) diretamente para a planilha, via o endpoint <code>action=hardware</code> do Apps Script — sem passar pelo app. Cada leitura vira uma nova linha; nada é sobrescrito.
+      </div>
+
+      <Card title="Como um dispositivo deve enviar dados" subtitle="POST para a mesma URL do Apps Script, com Content-Type: text/plain e o corpo abaixo em JSON.">
+        <div style={{ fontFamily: "monospace", fontSize: 11, background: GREEN_DARK, color: "#D7E3DC", padding: 14, borderRadius: 8, overflowX: "auto", whiteSpace: "pre" }}>{exemploPayload}</div>
+      </Card>
+
+      <Card title="Últimas leituras" right={<Button variant="ghost" onClick={buscar}>{carregando ? "Atualizando…" : "Atualizar"}</Button>}>
+        {erro && <div style={{ color: DANGER, fontSize: 12.5, marginBottom: 10 }}>{erro}</div>}
+        <Table
+          columns={[
+            { key: "timestamp", label: "Data/Hora" },
+            { key: "deviceId", label: "Dispositivo" },
+            { key: "galpaoId", label: "Galpão", render: (r) => galpoes.find((g) => g.id === r.galpaoId)?.nome || r.galpaoId || "—" },
+            { key: "tipo", label: "Tipo" },
+            { key: "valor", label: "Valor", render: (r) => `${r.valor} ${r.unidade || ""}` },
+          ]}
+          rows={leituras || []}
+          emptyText={leituras === null ? "Carregando…" : "Nenhuma leitura recebida ainda — conecte um dispositivo usando o formato acima."}
+        />
+      </Card>
     </div>
   );
 }
