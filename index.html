@@ -1,0 +1,1036 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BuildTrack AI - Dashboard de Construção</title>
+    <!-- Tailwind CSS para Estilização de Alto Nível -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Chart.js para Gráficos Interativos Premium -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- SheetJS (XLSX) para Leitura de Planilhas Excel Diretamente no Navegador -->
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <!-- Fontes do Google (Inter) para Máxima Legibilidade -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f8fafc;
+        }
+        /* Custom scrollbar para visual premium */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #f1f5f9;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
+        
+        /* Otimizações Especiais para Impressão limpa em PDF */
+        @media print {
+            .no-print {
+                display: none !important;
+            }
+            .print-area {
+                width: 100% !important;
+                max-width: 100% !important;
+                box-shadow: none !important;
+                border: none !important;
+                background: white !important;
+                padding: 0 !important;
+                margin: 0 !important;
+            }
+            .page-break {
+                page-break-before: always;
+            }
+            body {
+                background: white !important;
+                color: black !important;
+            }
+        }
+    </style>
+</head>
+<body class="text-slate-800 antialiased min-h-screen flex flex-col">
+
+    <!-- Topbar Executive Banner -->
+    <header class="bg-slate-900 text-white shadow-md border-b border-slate-800 no-print">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex flex-col sm:flex-row justify-between items-center gap-4">
+            <div class="flex items-center gap-3">
+                <div class="p-2.5 bg-blue-600 rounded-xl text-white shadow-lg shadow-blue-500/20">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"></path>
+                    </svg>
+                </div>
+                <div>
+                    <h1 class="text-xl font-bold tracking-tight">BuildTrack <span class="text-blue-500">AI</span></h1>
+                    <p class="text-xs text-slate-400">Plataforma Avançada de Gestão de Obras & Auditoria de Caixa</p>
+                </div>
+            </div>
+            
+            <!-- Quick Globals Indicator -->
+            <div class="flex items-center gap-6 text-sm text-slate-300">
+                <div class="hidden md:block">
+                    <span class="text-xs text-slate-500 block uppercase font-semibold">Total Portfólio</span>
+                    <span class="font-bold text-white text-base" id="topbar-total-budget">$1.89M</span>
+                </div>
+                <div class="h-8 w-[1px] bg-slate-800 hidden md:block"></div>
+                <div>
+                    <span class="text-xs text-slate-500 block uppercase font-semibold">Média de Conclusão</span>
+                    <span class="font-bold text-emerald-400 text-base" id="topbar-avg-completion">41.61%</span>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content Container -->
+    <main class="flex-grow max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-6 flex flex-col lg:flex-row gap-6 print-area">
+        
+        <!-- SIDEBAR CONTROLS (Hides on print) -->
+        <section class="w-full lg:w-80 flex flex-col gap-6 no-print shrink-0">
+            
+            <!-- Navigation Card -->
+            <div class="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm">
+                <h3 class="text-sm font-bold text-slate-500 uppercase tracking-wider mb-4">Painel de Navegação</h3>
+                <nav class="space-y-1">
+                    <button onclick="switchTab('overview')" id="nav-overview" class="w-full flex items-center gap-3 px-4 py-3 text-sm font-semibold rounded-xl transition bg-blue-50 text-blue-700">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v4a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v4a2 2 0 01-2 2h-2a2 2 0 01-2-2V6z"></path>
+                        </svg>
+                        <span>Visão Geral</span>
+                    </button>
+                    <button onclick="switchTab('details')" id="nav-details" class="w-full flex items-center gap-3 px-4 py-3 text-sm font-semibold rounded-xl transition text-slate-600 hover:bg-slate-50">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"></path>
+                        </svg>
+                        <span>Análise por Casa</span>
+                    </button>
+                </nav>
+            </div>
+
+            <!-- Upload Excel Card -->
+            <div class="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm">
+                <div class="flex items-center gap-2.5 mb-3">
+                    <div class="p-1.5 bg-emerald-100 rounded-lg text-emerald-700">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
+                        </svg>
+                    </div>
+                    <h3 class="text-sm font-bold text-slate-800 uppercase tracking-wider">Novo Budget Excel</h3>
+                </div>
+                <p class="text-xs text-slate-500 mb-4">Adicione ou atualize propriedades arrastando arquivos como <span class="font-semibold text-slate-600">1462 dufferin Budget...</span></p>
+                
+                <div id="drop-zone" class="border-2 border-dashed border-slate-200 hover:border-emerald-500 rounded-xl p-4 text-center cursor-pointer transition bg-slate-50/50">
+                    <svg class="w-8 h-8 text-slate-400 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
+                    </svg>
+                    <span class="text-xs font-semibold text-slate-600 block">Arraste a planilha aqui</span>
+                    <span class="text-[10px] text-slate-400">ou clique para procurar</span>
+                    <input type="file" id="excel-file-input" class="hidden" accept=".xlsx, .xls">
+                </div>
+            </div>
+
+            <!-- Quick Selection List -->
+            <div class="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm">
+                <h3 class="text-sm font-bold text-slate-500 uppercase tracking-wider mb-3">Minhas Casas (7)</h3>
+                <div class="space-y-2 max-h-64 overflow-y-auto pr-1" id="sidebar-house-list">
+                    <!-- Loaded dynamically in JavaScript -->
+                </div>
+            </div>
+            
+        </section>
+
+        <!-- MAIN DASHBOARD SCREENS -->
+        <section class="flex-grow flex flex-col gap-6 w-full">
+            
+            <!-- VIEW 1: OVERVIEW SCREEN -->
+            <div id="tab-overview" class="flex flex-col gap-6">
+                
+                <!-- Financial Cards Summary -->
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <div class="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm flex flex-col justify-between">
+                        <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider block mb-1">Orçamento Geral (Budgets)</span>
+                        <span class="text-2xl font-extrabold text-slate-900" id="card-total-budgeted">$1,894,660.00</span>
+                        <div class="mt-2 text-xs text-slate-500 flex items-center gap-1">
+                            <span class="text-emerald-500 font-bold">&#8593; 7 Propriedades</span> em desenvolvimento
+                        </div>
+                    </div>
+                    <div class="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm flex flex-col justify-between">
+                        <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider block mb-1">Liberado pelo Banco</span>
+                        <span class="text-2xl font-extrabold text-blue-600" id="card-total-authorized">$786,651.88</span>
+                        <div class="mt-2 text-xs text-slate-500">
+                            Equivale a <span class="font-semibold text-blue-600" id="card-progress-percentage">41.52%</span> do total orçado
+                        </div>
+                    </div>
+                    <div class="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm flex flex-col justify-between">
+                        <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider block mb-1">Falta Banco Desembolsar</span>
+                        <span class="text-2xl font-extrabold text-amber-500" id="card-total-available">$1,108,008.12</span>
+                        <div class="mt-2 text-xs text-slate-500">
+                            Saldo restante em andamento
+                        </div>
+                    </div>
+                    <div class="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm flex flex-col justify-between">
+                        <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider block mb-1">Média de Conclusão Física</span>
+                        <span class="text-2xl font-extrabold text-emerald-500" id="card-avg-completion">41.61%</span>
+                        <div class="mt-2 w-full bg-slate-100 rounded-full h-1.5 overflow-hidden">
+                            <div class="bg-emerald-500 h-full rounded-full transition-all" style="width: 41.61%"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- CASHFLOW AUDITOR SECTION -->
+                <div class="bg-white p-6 rounded-3xl border border-slate-200/80 shadow-sm">
+                    <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
+                        <div>
+                            <h2 class="text-lg font-bold text-slate-900">Auditoria de Caixa e Exposição do Investidor</h2>
+                            <p class="text-xs text-slate-500">Como o capital investido se comporta comparado às vistorias e liberações do banco</p>
+                        </div>
+                        <div class="bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-100 text-[11px] font-semibold text-slate-600">
+                            Última atualização: Junho 2026
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
+                        <div class="lg:col-span-5 space-y-4">
+                            
+                            <!-- Box: Exposição -->
+                            <div class="bg-amber-50/60 p-4 rounded-xl border border-amber-100">
+                                <span class="text-[10px] uppercase font-bold tracking-wider text-amber-800 block">Sua Exposição Líquida Atual</span>
+                                <span class="text-3xl font-extrabold text-amber-600 tracking-tight block mt-1">$613,314.00</span>
+                                <p class="text-xs text-amber-700/80 mt-2 leading-relaxed">
+                                    Este é o seu capital próprio atualmente investido diretamente nas obras que ainda não retornou para a sua conta por meio de reembolsos bancários.
+                                </p>
+                            </div>
+
+                            <!-- Box: Trâmite -->
+                            <div class="bg-blue-50/60 p-4 rounded-xl border border-blue-100">
+                                <span class="text-[10px] uppercase font-bold tracking-wider text-blue-800 block">Diferença em Trâmite / Retenção</span>
+                                <span class="text-2xl font-extrabold text-blue-700 tracking-tight block mt-1">$172,015.88</span>
+                                <p class="text-xs text-blue-700/80 mt-1.5 leading-relaxed">
+                                    O banco já aprovou <strong>$786,651.88</strong> nas planilhas de vistoria, mas você só recebeu <strong>$614,636.00</strong> em conta. Este saldo representa vistorias recém-aprovadas ou retenções de garantia (holdbacks) do banco.
+                                </p>
+                            </div>
+
+                        </div>
+
+                        <!-- Gráfico de Auditoria -->
+                        <div class="lg:col-span-7 h-72">
+                            <canvas id="cashflow-chart"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- PROPRIEDADES LIST (Visão Geral) -->
+                <div class="bg-white rounded-3xl border border-slate-200/80 shadow-sm overflow-hidden">
+                    <div class="p-6 border-b border-slate-100">
+                        <h2 class="text-lg font-bold text-slate-900">Painel Comparativo das Casas</h2>
+                        <p class="text-xs text-slate-500">Acompanhamento e ranking de progresso de cada endereço ativo</p>
+                    </div>
+
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left border-collapse">
+                            <thead>
+                                <tr class="bg-slate-50 text-[10px] uppercase font-bold text-slate-500 tracking-wider">
+                                    <th class="py-3.5 px-6">Endereço da Casa</th>
+                                    <th class="py-3.5 px-6">Orçamento Fixo (Budget)</th>
+                                    <th class="py-3.5 px-6">Desembolso Banco (Pago)</th>
+                                    <th class="py-3.5 px-6">Falta Banco Desembolsar</th>
+                                    <th class="py-3.5 px-6">Progresso Físico</th>
+                                    <th class="py-3.5 px-6 text-right">Ação</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-slate-100 text-sm text-slate-700" id="overview-properties-table">
+                                <!-- Loaded dynamically via JS -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- VIEW 2: DETAILS SCREEN -->
+            <div id="tab-details" class="hidden flex flex-col gap-6">
+                
+                <!-- Property Selector and Export Row -->
+                <div class="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm flex flex-col sm:flex-row justify-between items-center gap-4 no-print">
+                    <div class="flex items-center gap-3 w-full sm:w-auto">
+                        <label for="house-select" class="text-sm font-bold text-slate-500 shrink-0">Visualizar Casa:</label>
+                        <select id="house-select" onchange="onHouseChange()" class="w-full sm:w-64 bg-slate-50 border border-slate-200 text-slate-800 text-sm font-semibold py-2 px-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            <!-- Populated dynamically -->
+                        </select>
+                    </div>
+                    
+                    <button onclick="window.print()" class="w-full sm:w-auto flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm px-5 py-2.5 rounded-xl shadow-lg shadow-blue-500/10 transition">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"></path>
+                        </svg>
+                        <span>Imprimir Análise de Caixa</span>
+                    </button>
+                </div>
+
+                <!-- Print Header (Hidden on screen, shown in print) -->
+                <div class="hidden print:block border-b-2 border-slate-950 pb-4 mb-4">
+                    <div class="flex justify-between items-center">
+                        <div>
+                            <h1 class="text-2xl font-black text-slate-900">BuildTrack AI</h1>
+                            <p class="text-sm font-bold text-slate-600">Relatório Executivo de Auditoria do Caixa</p>
+                        </div>
+                        <div class="text-right text-xs text-slate-500">
+                            <p class="font-bold">Gerado em: <span id="print-date">2026-06-29</span></p>
+                            <p>Análise de Pendências de Obras</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Specific House Financial cards -->
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div class="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm flex flex-col justify-between">
+                        <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider block">Orçamento (Budget)</span>
+                        <span class="text-2xl font-extrabold text-slate-900 mt-1" id="detail-card-budgeted">$0.00</span>
+                        <div class="mt-2 text-xs text-slate-500">
+                            Custo de obra estimado contratual
+                        </div>
+                    </div>
+                    <div class="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm flex flex-col justify-between">
+                        <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider block">Liberado pelo Banco</span>
+                        <span class="text-2xl font-extrabold text-emerald-600 mt-1" id="detail-card-authorized">$0.00</span>
+                        <div class="mt-2 text-xs text-slate-500">
+                            Etapas físicas validadas e pagas
+                        </div>
+                    </div>
+                    <div class="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm flex flex-col justify-between">
+                        <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider block">Falta o Banco Liberar</span>
+                        <span class="text-2xl font-extrabold text-amber-500 mt-1" id="detail-card-available">$0.00</span>
+                        <div class="mt-2 text-xs text-slate-500">
+                            Equivale à parte que falta fazer
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Thermometer of completion -->
+                <div class="bg-white p-6 rounded-3xl border border-slate-200/80 shadow-sm">
+                    <div class="flex justify-between items-center mb-3">
+                        <h3 class="text-sm font-bold text-slate-800 uppercase tracking-wider">Progresso de Execução Física Auditada</h3>
+                        <span class="text-lg font-extrabold text-emerald-500" id="detail-thermometer-pct">0%</span>
+                    </div>
+                    <div class="w-full bg-slate-100 rounded-full h-4 overflow-hidden p-0.5 border border-slate-200/30">
+                        <div id="detail-thermometer-bar" class="bg-emerald-500 h-full rounded-full transition-all duration-700" style="width: 0%"></div>
+                    </div>
+                    <p class="text-xs text-slate-500 mt-2.5">
+                        Este termômetro indica a proporção de etapas que já foram <strong class="text-slate-700">100% finalizadas</strong> ou que já receberam aprovação de liberação pelo banco inspector.
+                    </p>
+                </div>
+
+                <!-- Pending Items Details List -->
+                <div class="bg-white rounded-3xl border border-slate-200/80 shadow-sm overflow-hidden">
+                    <div class="p-6 border-b border-slate-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 no-print">
+                        <div>
+                            <h2 class="text-lg font-bold text-slate-900" id="detail-list-title">Itens Pendentes e Orçado</h2>
+                            <p class="text-xs text-slate-500">Lista completa com descrições originais em inglês conforme a planilha do budget</p>
+                        </div>
+                        
+                        <!-- Toggle Filters -->
+                        <div class="flex items-center gap-2 bg-slate-100 p-1 rounded-lg text-xs font-semibold">
+                            <button onclick="setDetailFilter('all')" id="btn-filter-all" class="px-3 py-1.5 rounded-md bg-white text-slate-800 shadow-sm">Todos</button>
+                            <button onclick="setDetailFilter('pending')" id="btn-filter-pending" class="px-3 py-1.5 rounded-md text-slate-600 hover:text-slate-800 transition">Apenas Pendentes</button>
+                        </div>
+                    </div>
+
+                    <!-- Printed-only header (hidden on screen) -->
+                    <div class="hidden print:block p-4 bg-slate-100 border-b border-slate-200 text-sm font-bold">
+                        Lista completa de itens de obra e saldos em aberto para liberação bancária (USD)
+                    </div>
+
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left border-collapse">
+                            <thead>
+                                <tr class="bg-slate-50 text-[10px] uppercase font-bold text-slate-500 tracking-wider border-b border-slate-100">
+                                    <th class="py-3 px-6">Sequence</th>
+                                    <th class="py-3 px-6">Description (Nome no Excel)</th>
+                                    <th class="py-3 px-6 text-right">Budgeted (Orçado)</th>
+                                    <th class="py-3 px-6 text-right">Prev. Authorized (Liberado)</th>
+                                    <th class="py-3 px-6 text-right">Available (Falta Liberar)</th>
+                                    <th class="py-3 px-6 text-center">% Funded</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-slate-100 text-sm text-slate-700" id="detail-items-table-body">
+                                <!-- Loaded dynamically via JS -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Practical explanation box for leigos -->
+                <div class="bg-blue-50/40 p-6 rounded-3xl border border-blue-100 leading-relaxed text-sm text-blue-800">
+                    <h4 class="font-bold mb-2 flex items-center gap-1.5 text-blue-900">
+                        <svg class="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                        </svg>
+                        <span>O que falta fazer na obra para liberar esse dinheiro?</span>
+                    </h4>
+                    <p class="text-xs text-blue-700">
+                        Para liberar o saldo restante, o empreiteiro deve concluir as etapas com saldos <strong class="text-slate-800">Available</strong> acima de $0. O banco vistoria as conclusões e autoriza mais depósitos. Itens com <strong>100% Funded</strong> indicam etapas totalmente pagas e concluídas pelo construtor.
+                    </p>
+                </div>
+
+            </div>
+
+        </section>
+    </main>
+
+    <!-- JAVASCRIPT LOGIC AND CORE DATA IN MEMORY -->
+    <script>
+        // BASE DATA COPIED DIRECTLY FROM THE SOURCE EXCEL BUDGETS
+        const initialPortfolio = {
+            "1462 Dufferin Ave": [
+                {seq: 1, desc: "Project/Site Management", budgeted: 5500, authorized: 2365, available: 3135, pct: 43},
+                {seq: 2, desc: "Site Prep: Grading/Excavation", budgeted: 8700, authorized: 8700, available: 0, pct: 100},
+                {seq: 3, desc: "Ground Elevation", budgeted: 18100, authorized: 18100, available: 0, pct: 100},
+                {seq: 4, desc: "Foundation", budgeted: 27300, authorized: 27300, available: 0, pct: 100},
+                {seq: 5, desc: "Steam Wall", budgeted: 1500, authorized: 1500, available: 0, pct: 100},
+                {seq: 6, desc: "Masonry & Framing", budgeted: 14900, authorized: 14155, available: 745, pct: 95},
+                {seq: 7, desc: "Roof (including soffit/fascia & gutters)", budgeted: 10200, authorized: 5100, available: 5100, pct: 50},
+                {seq: 8, desc: "Exterior/Siding/Stucco", budgeted: 9200, authorized: 0, available: 9200, pct: 0},
+                {seq: 9, desc: "Windows/Exterior Doors", budgeted: 6100, authorized: 0, available: 6100, pct: 0},
+                {seq: 10, desc: "Plumbing - Rough", budgeted: 9500, authorized: 9500, available: 0, pct: 100},
+                {seq: 11, desc: "Plumbing - Finish", budgeted: 3600, authorized: 0, available: 3600, pct: 0},
+                {seq: 12, desc: "Electrical - Rough", budgeted: 9400, authorized: 8650, available: 750, pct: 92},
+                {seq: 13, desc: "Electrical  - Finish/Fixtures", budgeted: 2700, authorized: 0, available: 2700, pct: 0},
+                {seq: 14, desc: "HVAC - Rough", budgeted: 10800, authorized: 10800, available: 0, pct: 100},
+                {seq: 15, desc: "HVAC - Finish", budgeted: 3000, authorized: 0, available: 3000, pct: 0},
+                {seq: 16, desc: "Insulation/Drywall", budgeted: 8900, authorized: 0, available: 8900, pct: 0},
+                {seq: 17, desc: "Interior Doors/Trim", budgeted: 4200, authorized: 0, available: 4200, pct: 0},
+                {seq: 18, desc: "Paint", budgeted: 6200, authorized: 0, available: 6200, pct: 0},
+                {seq: 19, desc: "Flooring", budgeted: 4500, authorized: 0, available: 4500, pct: 0},
+                {seq: 20, desc: "Kitchen - Cabinets", budgeted: 17300, authorized: 0, available: 17300, pct: 0},
+                {seq: 21, desc: "Kitchen - Countertops", budgeted: 7300, authorized: 0, available: 7300, pct: 0},
+                {seq: 22, desc: "Kitchen - Tile Work", budgeted: 1200, authorized: 0, available: 1200, pct: 0},
+                {seq: 23, desc: "Kitchen - Appliances", budgeted: 1800, authorized: 0, available: 1800, pct: 0},
+                {seq: 24, desc: "Septic Tank / Well", budgeted: 25500, authorized: 0, available: 25500, pct: 0},
+                {seq: 25, desc: "Bathroom - Tile Work", budgeted: 2300, authorized: 0, available: 2300, pct: 0},
+                {seq: 26, desc: "Bathrooom - Vanities", budgeted: 8900, authorized: 0, available: 8900, pct: 0},
+                {seq: 27, desc: "Bathroom - Fixtures", budgeted: 700, authorized: 0, available: 700, pct: 0},
+                {seq: 28, desc: "Pavers Driveway", budgeted: 8900, authorized: 0, available: 8900, pct: 0},
+                {seq: 29, desc: "Landscaping", budgeted: 6300, authorized: 0, available: 6300, pct: 0},
+                {seq: 30, desc: "Final Clean", budgeted: 400, authorized: 0, available: 400, pct: 0},
+                {seq: 31, desc: "Contingency", budgeted: 15260, authorized: 6561.80, available: 8698.20, pct: 43}
+            ],
+            "3245 Pericles Ave": [
+                {seq: 1, desc: "Project/Site Management", budgeted: 5500, authorized: 3205, available: 2295, pct: 58.27},
+                {seq: 2, desc: "Site Prep: Grading/Excavation", budgeted: 8700, authorized: 8700, available: 0, pct: 100},
+                {seq: 3, desc: "Ground Elevation", budgeted: 18100, authorized: 18100, available: 0, pct: 100},
+                {seq: 4, desc: "Foundation", budgeted: 27300, authorized: 27300, available: 0, pct: 100},
+                {seq: 5, desc: "Steam Wall", budgeted: 1500, authorized: 1500, available: 0, pct: 100},
+                {seq: 6, desc: "Masonry & Framing", budgeted: 14900, authorized: 14155, available: 745, pct: 95},
+                {seq: 7, desc: "Roof (including soffit/fascia & gutters)", budgeted: 10200, authorized: 8200, available: 2000, pct: 80.39},
+                {seq: 8, desc: "Exterior/Siding/Stucco", budgeted: 9200, authorized: 0, available: 9200, pct: 0},
+                {seq: 9, desc: "Windows/Exterior Doors", budgeted: 6100, authorized: 4575, available: 1525, pct: 75},
+                {seq: 10, desc: "Plumbing - Rough", budgeted: 9500, authorized: 9500, available: 0, pct: 100},
+                {seq: 11, desc: "Plumbing - Finish", budgeted: 3600, authorized: 0, available: 3600, pct: 0},
+                {seq: 12, desc: "Electrical - Rough", budgeted: 9400, authorized: 8930, available: 470, pct: 95},
+                {seq: 13, desc: "Electrical  - Finish/Fixtures", budgeted: 2700, authorized: 0, available: 2700, pct: 0},
+                {seq: 14, desc: "HVAC - Rough", budgeted: 10800, authorized: 10800, available: 0, pct: 100},
+                {seq: 15, desc: "HVAC - Finish", budgeted: 3000, authorized: 0, available: 3000, pct: 0},
+                {seq: 16, desc: "Insulation/Drywall", budgeted: 8900, authorized: 0, available: 8900, pct: 0},
+                {seq: 17, desc: "Interior Doors/Trim", budgeted: 4200, authorized: 0, available: 4200, pct: 0},
+                {seq: 18, desc: "Paint", budgeted: 6200, authorized: 0, available: 6200, pct: 0},
+                {seq: 19, desc: "Flooring", budgeted: 4500, authorized: 0, available: 4500, pct: 0},
+                {seq: 20, desc: "Kitchen - Cabinets", budgeted: 14800, authorized: 0, available: 14800, pct: 0},
+                {seq: 21, desc: "Kitchen - Countertops", budgeted: 7300, authorized: 0, available: 7300, pct: 0},
+                {seq: 22, desc: "Kitchen - Tile Work", budgeted: 1200, authorized: 0, available: 1200, pct: 0},
+                {seq: 23, desc: "Kitchen - Appliances", budgeted: 1800, authorized: 0, available: 1800, pct: 0},
+                {seq: 24, desc: "Septic Tank / Well", budgeted: 25500, authorized: 0, available: 25500, pct: 0},
+                {seq: 25, desc: "Bathroom - Tile Work", budgeted: 2300, authorized: 0, available: 2300, pct: 0},
+                {seq: 26, desc: "Bathrooom - Vanities", budgeted: 8400, authorized: 0, available: 8400, pct: 0},
+                {seq: 27, desc: "Bathroom - Fixtures", budgeted: 700, authorized: 0, available: 700, pct: 0},
+                {seq: 28, desc: "Pavers Driveway", budgeted: 7900, authorized: 0, available: 7900, pct: 0},
+                {seq: 29, desc: "Landscaping", budgeted: 5300, authorized: 0, available: 5300, pct: 0},
+                {seq: 30, desc: "Final Clean", budgeted: 400, authorized: 0, available: 400, pct: 0},
+                {seq: 31, desc: "Contingency", budgeted: 24440, authorized: 11413.48, available: 13026.52, pct: 46.7}
+            ],
+            "3265 Pericles Ave": [
+                {seq: 1, desc: "Project/Site Management", budgeted: 5500, authorized: 3080, available: 2420, pct: 56},
+                {seq: 2, desc: "Site Prep: Grading/Excavation", budgeted: 8700, authorized: 8700, available: 0, pct: 100},
+                {seq: 3, desc: "Ground Elevation", budgeted: 18100, authorized: 18100, available: 0, pct: 100},
+                {seq: 4, desc: "Foundation", budgeted: 27300, authorized: 27300, available: 0, pct: 100},
+                {seq: 5, desc: "Steam Wall", budgeted: 1500, authorized: 1500, available: 0, pct: 100},
+                {seq: 6, desc: "Masonry & Framing", budgeted: 14900, authorized: 14155, available: 745, pct: 95},
+                {seq: 7, desc: "Roof (including soffit/fascia & gutters)", budgeted: 10200, authorized: 8200, available: 2000, pct: 80.39},
+                {seq: 8, desc: "Exterior/Siding/Stucco", budgeted: 9200, authorized: 0, available: 9200, pct: 0},
+                {seq: 9, desc: "Windows/Exterior Doors", budgeted: 6100, authorized: 4575, available: 1525, pct: 75},
+                {seq: 10, desc: "Plumbing - Rough", budgeted: 9500, authorized: 9500, available: 0, pct: 100},
+                {seq: 11, desc: "Plumbing - Finish", budgeted: 3600, authorized: 0, available: 3600, pct: 0},
+                {seq: 12, desc: "Electrical - Rough", budgeted: 9400, authorized: 9400, available: 0, pct: 100},
+                {seq: 13, desc: "Electrical  - Finish/Fixtures", budgeted: 2700, authorized: 0, available: 2700, pct: 0},
+                {seq: 14, desc: "HVAC - Rough", budgeted: 10800, authorized: 10800, available: 0, pct: 100},
+                {seq: 15, desc: "HVAC - Finish", budgeted: 3000, authorized: 0, available: 3000, pct: 0},
+                {seq: 16, desc: "Insulation/Drywall", budgeted: 8900, authorized: 0, available: 8900, pct: 0},
+                {seq: 17, desc: "Interior Doors/Trim", budgeted: 4200, authorized: 0, available: 4200, pct: 0},
+                {seq: 18, desc: "Paint", budgeted: 6200, authorized: 0, available: 6200, pct: 0},
+                {seq: 19, desc: "Flooring", budgeted: 4500, authorized: 0, available: 4500, pct: 0},
+                {seq: 20, desc: "Kitchen - Cabinets", budgeted: 17300, authorized: 0, available: 17300, pct: 0},
+                {seq: 21, desc: "Kitchen - Countertops", budgeted: 7300, authorized: 0, available: 7300, pct: 0},
+                {seq: 22, desc: "Kitchen - Tile Work", budgeted: 1200, authorized: 0, available: 1200, pct: 0},
+                {seq: 23, desc: "Kitchen - Appliances", budgeted: 1800, authorized: 0, available: 1800, pct: 0},
+                {seq: 24, desc: "Septic Tank / Well", budgeted: 25500, authorized: 0, available: 25500, pct: 0},
+                {seq: 25, desc: "Bathroom - Tile Work", budgeted: 2300, authorized: 0, available: 2300, pct: 0},
+                {seq: 26, desc: "Bathrooom - Vanities", budgeted: 8900, authorized: 0, available: 8900, pct: 0},
+                {seq: 27, desc: "Bathroom - Fixtures", budgeted: 700, authorized: 0, available: 700, pct: 0},
+                {seq: 28, desc: "Pavers Driveway", budgeted: 8900, authorized: 0, available: 8900, pct: 0},
+                {seq: 29, desc: "Landscaping", budgeted: 6300, authorized: 0, available: 6300, pct: 0},
+                {seq: 30, desc: "Final Clean", budgeted: 400, authorized: 0, available: 400, pct: 0},
+                {seq: 31, desc: "Contingency", budgeted: 24940, authorized: 11472.40, available: 13467.60, pct: 46}
+            ],
+            "5126 Aberback St": [
+                {seq: 1, desc: "Project/Site Management", budgeted: 5500, authorized: 1540, available: 3960, pct: 28},
+                {seq: 2, desc: "Site Prep: Grading/Excavation", budgeted: 8700, authorized: 8700, available: 0, pct: 100},
+                {seq: 3, desc: "Ground Elevation", budgeted: 18100, authorized: 18100, available: 0, pct: 100},
+                {seq: 4, desc: "Foundation", budgeted: 27300, authorized: 27300, available: 0, pct: 100},
+                {seq: 5, desc: "Steam Wall", budgeted: 1500, authorized: 1500, available: 0, pct: 100},
+                {seq: 6, desc: "Masonry & Framing", budgeted: 14900, authorized: 14155, available: 745, pct: 95},
+                {seq: 7, desc: "Roof (including soffit/fascia & gutters)", budgeted: 10200, authorized: 4080, available: 6120, pct: 40},
+                {seq: 8, desc: "Exterior/Siding/Stucco", budgeted: 9200, authorized: 0, available: 9200, pct: 0},
+                {seq: 9, desc: "Windows/Exterior Doors", budgeted: 6100, authorized: 0, available: 6100, pct: 0},
+                {seq: 10, desc: "Plumbing - Rough", budgeted: 9500, authorized: 0, available: 9500, pct: 0},
+                {seq: 11, desc: "Plumbing - Finish", budgeted: 3600, authorized: 0, available: 3600, pct: 0},
+                {seq: 12, desc: "Electrical - Rough", budgeted: 9400, authorized: 0, available: 9400, pct: 0},
+                {seq: 13, desc: "Electrical  - Finish/Fixtures", budgeted: 2700, authorized: 0, available: 2700, pct: 0},
+                {seq: 14, desc: "HVAC - Rough", budgeted: 10800, authorized: 0, available: 10800, pct: 0},
+                {seq: 15, desc: "HVAC - Finish", budgeted: 3000, authorized: 0, available: 3000, pct: 0},
+                {seq: 16, desc: "Insulation/Drywall", budgeted: 8900, authorized: 0, available: 8900, pct: 0},
+                {seq: 17, desc: "Interior Doors/Trim", budgeted: 4200, authorized: 0, available: 4200, pct: 0},
+                {seq: 18, desc: "Paint", budgeted: 6200, authorized: 0, available: 6200, pct: 0},
+                {seq: 19, desc: "Flooring", budgeted: 4500, authorized: 0, available: 4500, pct: 0},
+                {seq: 20, desc: "Kitchen - Cabinets", budgeted: 17300, authorized: 0, available: 17300, pct: 0},
+                {seq: 21, desc: "Kitchen - Countertops", budgeted: 7300, authorized: 0, available: 7300, pct: 0},
+                {seq: 22, desc: "Kitchen - Tile Work", budgeted: 1200, authorized: 0, available: 1200, pct: 0},
+                {seq: 23, desc: "Kitchen - Appliances", budgeted: 1800, authorized: 0, available: 1800, pct: 0},
+                {seq: 24, desc: "Septic Tank / Well", budgeted: 25500, authorized: 0, available: 25500, pct: 0},
+                {seq: 25, desc: "Bathroom - Tile Work", budgeted: 2300, authorized: 0, available: 2300, pct: 0},
+                {seq: 26, desc: "Bathrooom - Vanities", budgeted: 8900, authorized: 0, available: 8900, pct: 0},
+                {seq: 27, desc: "Bathroom - Fixtures", budgeted: 700, authorized: 0, available: 700, pct: 0},
+                {seq: 28, desc: "Pavers Driveway", budgeted: 8900, authorized: 0, available: 8900, pct: 0},
+                {seq: 29, desc: "Landscaping", budgeted: 6300, authorized: 0, available: 6300, pct: 0},
+                {seq: 30, desc: "Final Clean", budgeted: 400, authorized: 0, available: 400, pct: 0},
+                {seq: 31, desc: "Contingency", budgeted: 26040, authorized: 7291.20, available: 18748.80, pct: 28}
+            ],
+            "5674 Gadshaw Ave": [
+                {seq: 1, desc: "Project/Site Management", budgeted: 5500, authorized: 1210, available: 4290, pct: 22},
+                {seq: 2, desc: "Site Prep: Grading/Excavation", budgeted: 8700, authorized: 8700, available: 0, pct: 100},
+                {seq: 3, desc: "Ground Elevation", budgeted: 18100, authorized: 18100, available: 0, pct: 100},
+                {seq: 4, desc: "Foundation", budgeted: 27300, authorized: 27300, available: 0, pct: 100},
+                {seq: 5, desc: "Steam Wall", budgeted: 1500, authorized: 1500, available: 0, pct: 100},
+                {seq: 6, desc: "Masonry & Framing", budgeted: 14900, authorized: 0, available: 14900, pct: 0},
+                {seq: 7, desc: "Roof (including soffit/fascia & gutters)", budgeted: 10200, authorized: 0, available: 10200, pct: 0},
+                {seq: 8, desc: "Exterior/Siding/Stucco", budgeted: 9200, authorized: 0, available: 9200, pct: 0},
+                {seq: 9, desc: "Windows/Exterior Doors", budgeted: 6100, authorized: 0, available: 6100, pct: 0},
+                {seq: 10, desc: "Plumbing - Rough", budgeted: 9500, authorized: 0, available: 9500, pct: 0},
+                {seq: 11, desc: "Plumbing - Finish", budgeted: 3600, authorized: 0, available: 3600, pct: 0},
+                {seq: 12, desc: "Electrical - Rough", budgeted: 9400, authorized: 1000, available: 8400, pct: 11},
+                {seq: 13, desc: "Electrical  - Finish/Fixtures", budgeted: 2700, authorized: 0, available: 2700, pct: 0},
+                {seq: 14, desc: "HVAC - Rough", budgeted: 10800, authorized: 0, available: 10800, pct: 0},
+                {seq: 15, desc: "HVAC - Finish", budgeted: 3000, authorized: 0, available: 3000, pct: 0},
+                {seq: 16, desc: "Insulation/Drywall", budgeted: 8900, authorized: 0, available: 8900, pct: 0},
+                {seq: 17, desc: "Interior Doors/Trim", budgeted: 4200, authorized: 0, available: 4200, pct: 0},
+                {seq: 18, desc: "Paint", budgeted: 6200, authorized: 0, available: 6200, pct: 0},
+                {seq: 19, desc: "Flooring", budgeted: 4500, authorized: 0, available: 4500, pct: 0},
+                {seq: 20, desc: "Kitchen - Cabinets", budgeted: 17300, authorized: 0, available: 17300, pct: 0},
+                {seq: 21, desc: "Kitchen - Countertops", budgeted: 7300, authorized: 0, available: 7300, pct: 0},
+                {seq: 22, desc: "Kitchen - Tile Work", budgeted: 1200, authorized: 0, available: 1200, pct: 0},
+                {seq: 23, desc: "Kitchen - Appliances", budgeted: 1800, authorized: 0, available: 1800, pct: 0},
+                {seq: 24, desc: "Septic Tank / Well", budgeted: 25500, authorized: 0, available: 25500, pct: 0},
+                {seq: 25, desc: "Bathroom - Tile Work", budgeted: 2300, authorized: 0, available: 2300, pct: 0},
+                {seq: 26, desc: "Bathrooom - Vanities", budgeted: 8900, authorized: 0, available: 8900, pct: 0},
+                {seq: 27, desc: "Bathroom - Fixtures", budgeted: 700, authorized: 0, available: 700, pct: 0},
+                {seq: 28, desc: "Pavers Driveway", budgeted: 8900, authorized: 0, available: 8900, pct: 0},
+                {seq: 29, desc: "Landscaping", budgeted: 6300, authorized: 0, available: 6300, pct: 0},
+                {seq: 30, desc: "Final Clean", budgeted: 400, authorized: 0, available: 400, pct: 0},
+                {seq: 31, desc: "Contingency", budgeted: 25040, authorized: 4000, available: 21040, pct: 16}
+            ],
+            "7327 Cameo Cir": [
+                {seq: 1, desc: "Project/Site Management", budgeted: 5500, authorized: 2420, available: 3080, pct: 44},
+                {seq: 2, desc: "Site Prep: Grading/Excavation", budgeted: 8700, authorized: 8700, available: 0, pct: 100},
+                {seq: 3, desc: "Ground Elevation", budgeted: 18100, authorized: 18100, available: 0, pct: 100},
+                {seq: 4, desc: "Foundation", budgeted: 27300, authorized: 27300, available: 0, pct: 100},
+                {seq: 5, desc: "Steam Wall", budgeted: 1500, authorized: 1500, available: 0, pct: 100},
+                {seq: 6, desc: "Masonry & Framing", budgeted: 14900, authorized: 14155, available: 745, pct: 95},
+                {seq: 7, desc: "Roof (including soffit/fascia & gutters)", budgeted: 10200, authorized: 8670, available: 1530, pct: 85},
+                {seq: 8, desc: "Exterior/Siding/Stucco", budgeted: 9200, authorized: 0, available: 9200, pct: 0},
+                {seq: 9, desc: "Windows/Exterior Doors", budgeted: 6100, authorized: 0, available: 6100, pct: 0},
+                {seq: 10, desc: "Plumbing - Rough", budgeted: 9500, authorized: 8750, available: 750, pct: 92},
+                {seq: 11, desc: "Plumbing - Finish", budgeted: 3600, authorized: 0, available: 3600, pct: 0},
+                {seq: 12, desc: "Electrical - Rough", budgeted: 9400, authorized: 8650, available: 750, pct: 92},
+                {seq: 13, desc: "Electrical  - Finish/Fixtures", budgeted: 2700, authorized: 0, available: 2700, pct: 0},
+                {seq: 14, desc: "HVAC - Rough", budgeted: 10800, authorized: 10050, available: 750, pct: 93},
+                {seq: 15, desc: "HVAC - Finish", budgeted: 3000, authorized: 0, available: 3000, pct: 0},
+                {seq: 16, desc: "Insulation/Drywall", budgeted: 8900, authorized: 0, available: 8900, pct: 0},
+                {seq: 17, desc: "Interior Doors/Trim", budgeted: 4200, authorized: 0, available: 4200, pct: 0},
+                {seq: 18, desc: "Paint", budgeted: 6200, authorized: 0, available: 6200, pct: 0},
+                {seq: 19, desc: "Flooring", budgeted: 4500, authorized: 0, available: 4500, pct: 0},
+                {seq: 20, desc: "Kitchen - Cabinets", budgeted: 14800, authorized: 0, available: 14800, pct: 0},
+                {seq: 21, desc: "Kitchen - Countertops", budgeted: 7300, authorized: 0, available: 7300, pct: 0},
+                {seq: 22, desc: "Kitchen - Tile Work", budgeted: 1200, authorized: 0, available: 1200, pct: 0},
+                {seq: 23, desc: "Kitchen - Appliances", budgeted: 1800, authorized: 0, available: 1800, pct: 0},
+                {seq: 24, desc: "Septic Tank / Well", budgeted: 25500, authorized: 0, available: 25500, pct: 0},
+                {seq: 25, desc: "Bathroom - Tile Work", budgeted: 2300, authorized: 0, available: 2300, pct: 0},
+                {seq: 26, desc: "Bathrooom - Vanities", budgeted: 8400, authorized: 0, available: 8400, pct: 0},
+                {seq: 27, desc: "Bathroom - Fixtures", budgeted: 700, authorized: 0, available: 700, pct: 0},
+                {seq: 28, desc: "Pavers Driveway", budgeted: 7900, authorized: 0, available: 7900, pct: 0},
+                {seq: 29, desc: "Landscaping", budgeted: 5300, authorized: 0, available: 5300, pct: 0},
+                {seq: 30, desc: "Final Clean", budgeted: 400, authorized: 0, available: 400, pct: 0},
+                {seq: 31, desc: "Contingency", budgeted: 23570, authorized: 10370.80, available: 13199.20, pct: 44}
+            ],
+            "7850 Grafton Rd": [
+                {seq: 1, desc: "Project/Site Management", budgeted: 5500, authorized: 2530, available: 2970, pct: 46},
+                {seq: 2, desc: "Site Prep: Grading/Excavation", budgeted: 8700, authorized: 8700, available: 0, pct: 100},
+                {seq: 3, desc: "Ground Elevation", budgeted: 18100, authorized: 18100, available: 0, pct: 100},
+                {seq: 4, desc: "Foundation", budgeted: 27300, authorized: 27300, available: 0, pct: 100},
+                {seq: 5, desc: "Steam Wall", budgeted: 1500, authorized: 1500, available: 0, pct: 100},
+                {seq: 6, desc: "Masonry & Framing", budgeted: 14900, authorized: 14155, available: 745, pct: 95},
+                {seq: 7, desc: "Roof (including soffit/fascia & gutters)", budgeted: 10200, authorized: 8160, available: 2040, pct: 80},
+                {seq: 8, desc: "Exterior/Siding/Stucco", budgeted: 9200, authorized: 0, available: 9200, pct: 0},
+                {seq: 9, desc: "Windows/Exterior Doors", budgeted: 6100, authorized: 4880, available: 1220, pct: 80},
+                {seq: 10, desc: "Plumbing - Rough", budgeted: 9500, authorized: 8750, available: 750, pct: 92},
+                {seq: 11, desc: "Plumbing - Finish", budgeted: 3600, authorized: 0, available: 3600, pct: 0},
+                {seq: 12, desc: "Electrical  - Finish/Fixtures", budgeted: 2700, authorized: 0, available: 2700, pct: 0},
+                {seq: 13, desc: "HVAC - Finish", budgeted: 3000, authorized: 0, available: 3000, pct: 0},
+                {seq: 14, desc: "Insulation/Drywall", budgeted: 8900, authorized: 0, available: 8900, pct: 0},
+                {seq: 15, desc: "Interior Doors/Trim", budgeted: 4200, authorized: 0, available: 4200, pct: 0},
+                {seq: 16, desc: "Paint", budgeted: 6200, authorized: 0, available: 6200, pct: 0},
+                {seq: 17, desc: "Flooring", budgeted: 4500, authorized: 0, available: 4500, pct: 0},
+                {seq: 18, desc: "Kitchen - Cabinets", budgeted: 14800, authorized: 0, available: 14800, pct: 0},
+                {seq: 19, desc: "Kitchen - Countertops", budgeted: 7300, authorized: 0, available: 7300, pct: 0},
+                {seq: 20, desc: "Kitchen - Tile Work", budgeted: 1200, authorized: 0, available: 1200, pct: 0},
+                {seq: 21, desc: "Kitchen - Appliances", budgeted: 1800, authorized: 0, available: 1800, pct: 0},
+                {seq: 22, desc: "Septic Tank / Well", budgeted: 25500, authorized: 0, available: 25500, pct: 0},
+                {seq: 23, desc: "Bathroom - Tile Work", budgeted: 2300, authorized: 0, available: 2300, pct: 0},
+                {seq: 24, desc: "Bathrooom - Vanities", budgeted: 8400, authorized: 0, available: 8400, pct: 0},
+                {seq: 25, desc: "Bathroom - Fixtures", budgeted: 700, authorized: 0, available: 700, pct: 0},
+                {seq: 26, desc: "Pavers Driveway", budgeted: 7900, authorized: 0, available: 7900, pct: 0},
+                {seq: 27, desc: "Landscaping", budgeted: 5300, authorized: 0, available: 5300, pct: 0},
+                {seq: 28, desc: "Final Clean", budgeted: 400, authorized: 0, available: 400, pct: 0},
+                {seq: 29, desc: "Contingency", budgeted: 23570, authorized: 10842.20, available: 12727.80, pct: 46}
+            ]
+        };
+
+        // Static parameters from the investor
+        const globalCashflow = {
+            investorPaid: 1227950.00,
+            bankReceived: 614636.00
+        };
+
+        let activeTab = 'overview';
+        let detailFilter = 'all'; // 'all' or 'pending'
+        let chartInstance = null;
+
+        // Utility to format values nicely
+        function fmtUsd(num) {
+            return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(num);
+        }
+
+        // Calculate portfolio aggregates on the fly
+        function getAggregates() {
+            let totalB = 0;
+            let totalAu = 0;
+            let totalAv = 0;
+            let count = 0;
+            let sumPcts = 0;
+
+            for (const house in initialPortfolio) {
+                const items = initialPortfolio[house];
+                let b = 0, au = 0, av = 0;
+                items.forEach(i => {
+                    b += i.budgeted;
+                    au += i.authorized;
+                    av += i.available;
+                });
+                totalB += b;
+                totalAu += au;
+                totalAv += av;
+                sumPcts += (au / b) * 100;
+                count++;
+            }
+
+            return {
+                totalBudgeted: totalB,
+                totalAuthorized: totalAu,
+                totalAvailable: totalAv,
+                avgCompletion: count > 0 ? (sumPcts / count) : 0
+            };
+        }
+
+        window.onload = function() {
+            initApp();
+        };
+
+        function initApp() {
+            renderSidebarList();
+            renderSelectors();
+            updateDashboardCards();
+            renderOverviewTable();
+            renderAuditChart();
+            renderDetailView();
+        }
+
+        function switchTab(tabId) {
+            activeTab = tabId;
+            document.getElementById('tab-overview').classList.add('hidden');
+            document.getElementById('tab-details').classList.add('hidden');
+            document.getElementById('nav-overview').className = "w-full flex items-center gap-3 px-4 py-3 text-sm font-semibold rounded-xl transition text-slate-600 hover:bg-slate-50";
+            document.getElementById('nav-details').className = "w-full flex items-center gap-3 px-4 py-3 text-sm font-semibold rounded-xl transition text-slate-600 hover:bg-slate-50";
+
+            document.getElementById('tab-' + tabId).classList.remove('hidden');
+            document.getElementById('nav-' + tabId).className = "w-full flex items-center gap-3 px-4 py-3 text-sm font-semibold rounded-xl transition bg-blue-50 text-blue-700";
+            
+            if (tabId === 'overview') {
+                renderAuditChart();
+            } else {
+                renderDetailView();
+            }
+        }
+
+        function updateDashboardCards() {
+            const agg = getAggregates();
+            document.getElementById('card-total-budgeted').innerText = fmtUsd(agg.totalBudgeted);
+            document.getElementById('card-total-authorized').innerText = fmtUsd(agg.totalAuthorized);
+            document.getElementById('card-total-available').innerText = fmtUsd(agg.totalAvailable);
+            
+            const pctText = ((agg.totalAuthorized / agg.totalBudgeted) * 100).toFixed(2) + "%";
+            document.getElementById('card-progress-percentage').innerText = pctText;
+            document.getElementById('card-avg-completion').innerText = agg.avgCompletion.toFixed(2) + "%";
+
+            // Update topbar banner metrics
+            document.getElementById('topbar-total-budget').innerText = fmtUsd(agg.totalBudgeted);
+            document.getElementById('topbar-avg-completion').innerText = agg.avgCompletion.toFixed(2) + "%";
+        }
+
+        function renderSidebarList() {
+            const container = document.getElementById('sidebar-house-list');
+            container.innerHTML = '';
+            
+            for (const name in initialPortfolio) {
+                const items = initialPortfolio[name];
+                let b = 0, au = 0;
+                items.forEach(i => { b += i.budgeted; au += i.authorized; });
+                const pct = ((au / b) * 100).toFixed(0);
+
+                const div = document.createElement('div');
+                div.className = "flex items-center justify-between p-2.5 rounded-lg border border-slate-100 hover:bg-slate-50 cursor-pointer transition text-xs font-semibold";
+                div.onclick = () => {
+                    document.getElementById('house-select').value = name;
+                    switchTab('details');
+                    onHouseChange();
+                };
+                div.innerHTML = `
+                    <div class="truncate pr-2">
+                        <span class="block text-slate-800 font-bold truncate">${name}</span>
+                        <span class="text-[10px] text-slate-400 font-medium">Orçado: ${fmtUsd(b)}</span>
+                    </div>
+                    <span class="px-2 py-0.5 bg-emerald-50 text-emerald-700 rounded-md font-bold">${pct}%</span>
+                `;
+                container.appendChild(div);
+            }
+        }
+
+        function renderSelectors() {
+            const select = document.getElementById('house-select');
+            select.innerHTML = '';
+            for (const name in initialPortfolio) {
+                const opt = document.createElement('optgroup');
+                opt.label = name;
+                const innerOpt = document.createElement('option');
+                innerOpt.value = name;
+                innerOpt.innerText = name;
+                select.appendChild(innerOpt);
+            }
+        }
+
+        function renderOverviewTable() {
+            const tbody = document.getElementById('overview-properties-table');
+            tbody.innerHTML = '';
+
+            for (const name in initialPortfolio) {
+                const items = initialPortfolio[name];
+                let b = 0, au = 0, av = 0;
+                items.forEach(i => { b += i.budgeted; au += i.authorized; av += i.available; });
+                const pct = ((au / b) * 100).toFixed(2);
+
+                const tr = document.createElement('tr');
+                tr.className = "hover:bg-slate-50/50 transition cursor-pointer";
+                tr.onclick = () => {
+                    document.getElementById('house-select').value = name;
+                    switchTab('details');
+                    onHouseChange();
+                };
+                tr.innerHTML = `
+                    <td class="py-4 px-6 font-bold text-slate-900">${name}</td>
+                    <td class="py-4 px-6 font-semibold">${fmtUsd(b)}</td>
+                    <td class="py-4 px-6 font-semibold text-blue-600">${fmtUsd(au)}</td>
+                    <td class="py-4 px-6 font-semibold text-amber-500">${fmtUsd(av)}</td>
+                    <td class="py-4 px-6">
+                        <div class="flex items-center gap-2">
+                            <span class="font-bold text-xs text-slate-600">${pct}%</span>
+                            <div class="w-20 bg-slate-100 rounded-full h-1.5 overflow-hidden">
+                                <div class="bg-blue-600 h-full rounded-full" style="width: ${pct}%"></div>
+                            </div>
+                        </div>
+                    </td>
+                    <td class="py-4 px-6 text-right">
+                        <button class="text-blue-600 hover:text-blue-800 font-bold text-xs flex items-center gap-1 justify-end ml-auto">
+                            <span>Auditar</span>
+                            <span>&rarr;</span>
+                        </button>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            }
+        }
+
+        function renderAuditChart() {
+            const ctx = document.getElementById('cashflow-chart').getContext('2d');
+            
+            // Get current aggregate total budgeted and authorized
+            const agg = getAggregates();
+
+            if (chartInstance) {
+                chartInstance.destroy();
+            }
+
+            chartInstance = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: ['Investidor vs Banco', 'Auditoria Geral Budgets'],
+                    datasets: [
+                        {
+                            label: 'Investidor Injetado / Budget Total',
+                            data: [globalCashflow.investorPaid, agg.totalBudgeted],
+                            backgroundColor: '#1e293b',
+                            borderRadius: 8,
+                            borderWidth: 0
+                        },
+                        {
+                            label: 'Banco Reembolsado / Banco Aprovado',
+                            data: [globalCashflow.bankReceived, agg.totalAuthorized],
+                            backgroundColor: '#2563eb',
+                            borderRadius: 8,
+                            borderWidth: 0
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'bottom',
+                            labels: {
+                                font: { family: 'Inter', size: 11, weight: '600' }
+                            }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: {
+                                callback: function(value) { return fmtUsd(value); },
+                                font: { family: 'Inter', size: 10 }
+                            },
+                            grid: { color: '#f1f5f9' }
+                        },
+                        x: {
+                            ticks: { font: { family: 'Inter', size: 11, weight: '600' } },
+                            grid: { display: false }
+                        }
+                    }
+                }
+            });
+        }
+
+        function setDetailFilter(filter) {
+            detailFilter = filter;
+            document.getElementById('btn-filter-all').className = filter === 'all' 
+                ? "px-3 py-1.5 rounded-md bg-white text-slate-800 shadow-sm" 
+                : "px-3 py-1.5 rounded-md text-slate-600 hover:text-slate-800 transition";
+            document.getElementById('btn-filter-pending').className = filter === 'pending' 
+                ? "px-3 py-1.5 rounded-md bg-white text-slate-800 shadow-sm" 
+                : "px-3 py-1.5 rounded-md text-slate-600 hover:text-slate-800 transition";
+            renderDetailView();
+        }
+
+        function onHouseChange() {
+            renderDetailView();
+        }
+
+        function renderDetailView() {
+            const houseSelect = document.getElementById('house-select');
+            const houseName = houseSelect.value;
+            if (!houseName || !initialPortfolio[houseName]) return;
+
+            const items = initialPortfolio[houseName];
+            let bSum = 0, auSum = 0, avSum = 0;
+            items.forEach(i => {
+                bSum += i.budgeted;
+                auSum += i.authorized;
+                avSum += i.available;
+            });
+
+            // Update cards
+            document.getElementById('detail-card-budgeted').innerText = fmtUsd(bSum);
+            document.getElementById('detail-card-authorized').innerText = fmtUsd(auSum);
+            document.getElementById('detail-card-available').innerText = fmtUsd(avSum);
+
+            // Update thermometer
+            const pct = bSum > 0 ? ((auSum / bSum) * 100).toFixed(2) : "0";
+            document.getElementById('detail-thermometer-pct').innerText = pct + "%";
+            document.getElementById('detail-thermometer-bar').style.width = pct + "%";
+
+            // List Title
+            document.getElementById('detail-list-title').innerText = "Itens da Casa: " + houseName;
+
+            // Load table body
+            const tbody = document.getElementById('detail-items-table-body');
+            tbody.innerHTML = '';
+
+            items.forEach(item => {
+                if (detailFilter === 'pending' && item.available <= 0) {
+                    return; // Skip non-pending items
+                }
+
+                const tr = document.createElement('tr');
+                // Highlight rows with open balance in mild yellow/amber
+                tr.className = item.available > 0 ? "bg-amber-50/20 hover:bg-amber-50/40" : "hover:bg-slate-50";
+                
+                tr.innerHTML = `
+                    <td class="py-3 px-6 text-xs text-slate-400 font-mono">${item.seq}</td>
+                    <td class="py-3 px-6 font-bold text-slate-900">${item.desc}</td>
+                    <td class="py-3 px-6 text-right font-medium">${fmtUsd(item.budgeted)}</td>
+                    <td class="py-3 px-6 text-right font-medium text-emerald-600">${fmtUsd(item.authorized)}</td>
+                    <td class="py-3 px-6 text-right font-bold ${item.available > 0 ? 'text-amber-600' : 'text-slate-400'}">${fmtUsd(item.available)}</td>
+                    <td class="py-3 px-6 text-center">
+                        <span class="px-2.5 py-1 text-xs font-bold rounded-lg ${item.pct >= 100 ? 'bg-emerald-100 text-emerald-800' : (item.pct > 0 ? 'bg-blue-100 text-blue-800' : 'bg-slate-100 text-slate-500')}">
+                            ${item.pct.toFixed(0)}%
+                        </span>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        // EXCEL SHEET DROPZONE PARSER IMPLEMENTATION
+        const dropZone = document.getElementById('drop-zone');
+        const fileInput = document.getElementById('excel-file-input');
+
+        dropZone.onclick = () => fileInput.click();
+
+        fileInput.onchange = (e) => {
+            const files = e.target.files;
+            if (files.length > 0) handleExcelFile(files[0]);
+        };
+
+        dropZone.ondragover = (e) => {
+            e.preventDefault();
+            dropZone.classList.add('border-emerald-500', 'bg-emerald-50/30');
+        };
+
+        dropZone.ondragleave = () => {
+            dropZone.classList.remove('border-emerald-500', 'bg-emerald-50/30');
+        };
+
+        dropZone.ondrop = (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('border-emerald-500', 'bg-emerald-50/30');
+            const files = e.dataTransfer.files;
+            if (files.length > 0) handleExcelFile(files[0]);
+        };
+
+        function handleExcelFile(file) {
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const data = new Uint8Array(e.target.result);
+                    const workbook = XLSX.read(data, { type: 'array' });
+                    
+                    // Grab first sheet
+                    const sheetName = workbook.SheetNames[0];
+                    const sheet = workbook.Sheets[sheetName];
+                    
+                    // Parse rows to JSON array
+                    const rows = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+                    
+                    if (rows.length < 3) {
+                        alert("Arquivo inválido ou sem dados suficientes.");
+                        return;
+                    }
+
+                    // Extract title name dynamically (usually found in A1)
+                    let extractedTitle = String(rows[0][0] || file.name.replace(".xlsx", "")).split(" ave")[0].trim();
+                    if (extractedTitle.toLowerCase().includes("sequence")) {
+                        extractedTitle = file.name.replace(".xlsx", "").split(" Budget")[0];
+                    }
+
+                    // Parse the columns
+                    const parsedItems = [];
+                    let parsingItems = false;
+                    
+                    for (let r = 0; r < rows.length; r++) {
+                        const row = rows[r];
+                        if (!row || row.length === 0) continue;
+                        
+                        // Detect header row to start reading actual items
+                        if (String(row[1]).toLowerCase().trim() === "description") {
+                            parsingItems = true;
+                            continue;
+                        }
+
+                        if (parsingItems) {
+                            const desc = String(row[1] || "").trim();
+                            if (!desc || desc === "" || desc.toLowerCase() === "total") {
+                                break; // Stop at Total line
+                            }
+
+                            parsedItems.push({
+                                seq: parseInt(row[0]) || (parsedItems.length + 1),
+                                desc: desc,
+                                budgeted: parseFloat(row[2]) || 0,
+                                authorized: parseFloat(row[3]) || 0,
+                                available: parseFloat(row[4]) || 0,
+                                pct: parseFloat(row[5]) || 0
+                            });
+                        }
+                    }
+
+                    if (parsedItems.length > 0) {
+                        // Merge parsed house into portfolio object
+                        initialPortfolio[extractedTitle] = parsedItems;
+                        
+                        // Re-trigger visual refresh
+                        initApp();
+                        
+                        // Select the uploaded house automatically and jump to detail view
+                        document.getElementById('house-select').value = extractedTitle;
+                        switchTab('details');
+                        onHouseChange();
+                        
+                        // Soft Notification
+                        console.log(`Sucesso: ${extractedTitle} carregada com ${parsedItems.length} linhas de budget.`);
+                    } else {
+                        alert("Não foi possível identificar as linhas de orçamento. Verifique se o formato coincide.");
+                    }
+
+                } catch(err) {
+                    console.error("Erro ao ler excel", err);
+                    alert("Falha ao abrir e decodificar planilha. Verifique o arquivo.");
+                }
+            };
+            reader.readAsArrayBuffer(file);
+        }
+    </script>
+</body>
+</html>
