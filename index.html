@@ -96,6 +96,9 @@ const emptyDB = () => ({
   motoristas: [],
   veiculos: [],
   fretes: [],
+  centrosCusto: [],
+  contasAvulsas: [],
+  movimentacoesEstoque: [],
 });
 
 const MODULES = [
@@ -108,10 +111,59 @@ const MODULES = [
   { key: "racao", label: "Fábrica de Ração", icon: "\u2698" },
   { key: "compras", label: "Compras & Insumos", icon: "\u2193" },
   { key: "financeiro", label: "Financeiro", icon: "$" },
+  { key: "centrocusto", label: "Centro de Custo", icon: "\u25C8" },
   { key: "contabilidade", label: "Contabilidade", icon: "\u25A4" },
   { key: "logistica", label: "Logística", icon: "\u2692" },
   { key: "fiscal", label: "Fiscal (NFe/SPED)", icon: "\u2637" },
 ];
+
+/* -------- condições de pagamento & parcelamento -------- */
+
+const CONDICOES_PAGAMENTO = [
+  { value: "vista_pix", label: "À vista — Pix", parcelas: [0] },
+  { value: "vista_dinheiro", label: "À vista — Dinheiro", parcelas: [0] },
+  { value: "vista_cartao", label: "À vista — Cartão", parcelas: [0] },
+  { value: "credito", label: "Crédito (30 dias)", parcelas: [30] },
+  { value: "boleto_30", label: "Boleto 30 dias", parcelas: [30] },
+  { value: "boleto_30_60", label: "Boleto 30/60 dias", parcelas: [30, 60] },
+  { value: "boleto_30_60_90", label: "Boleto 30/60/90 dias", parcelas: [30, 60, 90] },
+  { value: "boleto_30_60_90_120", label: "Boleto 30/60/90/120 dias", parcelas: [30, 60, 90, 120] },
+  { value: "governo", label: "Governo (empenho)", parcelas: [45] },
+];
+
+function gerarParcelas(condicaoValue, total, dataBaseISO) {
+  const cond = CONDICOES_PAGAMENTO.find((c) => c.value === condicaoValue) || CONDICOES_PAGAMENTO[0];
+  const base = new Date(dataBaseISO + "T00:00:00");
+  const n = cond.parcelas.length;
+  const valorParcela = Math.round((Number(total) / n) * 100) / 100;
+  return cond.parcelas.map((dias, i) => {
+    const venc = new Date(base);
+    venc.setDate(venc.getDate() + dias);
+    const valor = i === n - 1 ? Number(total) - valorParcela * (n - 1) : valorParcela; // ajusta arredondamento na última
+    return { id: uid(), numero: i + 1, de: n, vencimento: venc.toISOString().slice(0, 10), valor, status: "pendente" };
+  });
+}
+
+/* -------- status financeiro -------- */
+
+const STATUS_FINANCEIRO = [
+  { value: "pendente", label: "Pendente", color: "#B7791F", bg: "#FBF3DC" },
+  { value: "faturado", label: "Faturado", color: "#1D6FA5", bg: "#E1EEF6" },
+  { value: "pago", label: "Pago", color: "#2F7D4F", bg: "#E4F3E9" },
+  { value: "cancelado", label: "Cancelado", color: "#B5482C", bg: "#FBEAE4" },
+  { value: "reconciliacao", label: "Em reconciliação", color: "#6B4FA0", bg: "#EDE7F6" },
+];
+
+/* -------- NF-e simulada (ambiente de homologação) -------- */
+
+function gerarChaveAcessoFake() {
+  let s = "";
+  for (let i = 0; i < 44; i++) s += Math.floor(Math.random() * 10);
+  return s;
+}
+function gerarProtocoloFake() {
+  return "1" + Math.floor(100000000000 + Math.random() * 899999999999).toString();
+}
 
 function uid() {
   return Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
@@ -666,6 +718,8 @@ function ModuleView({ activeModule, db, update, filialId, empresaId, usuario }) 
             { key: "unidade", label: "Unidade", type: "select", options: [{ value: "dz", label: "Dúzia" }, { value: "cx", label: "Caixa (30 dz)" }, { value: "un", label: "Unidade" }, { value: "kg", label: "Kg" }] },
             { key: "custoUnit", label: "Custo unitário (R$)", type: "number" },
             { key: "precoVenda", label: "Preço de venda (R$)", type: "number" },
+            { key: "lote", label: "Lote" },
+            { key: "cfop", label: "CFOP" },
           ]}
           columns={[
             { key: "nome", label: "Produto" },
@@ -673,6 +727,8 @@ function ModuleView({ activeModule, db, update, filialId, empresaId, usuario }) 
             { key: "unidade", label: "Unid." },
             { key: "custoUnit", label: "Custo", render: (r) => brl(r.custoUnit) },
             { key: "precoVenda", label: "Preço", render: (r) => brl(r.precoVenda) },
+            { key: "lote", label: "Lote" },
+            { key: "cfop", label: "CFOP" },
           ]}
         />
       );
@@ -686,12 +742,23 @@ function ModuleView({ activeModule, db, update, filialId, empresaId, usuario }) 
       return <Compras db={db} update={update} filialId={filialId} />;
     case "financeiro":
       return <Financeiro db={db} update={update} filialId={filialId} />;
+    case "centrocusto":
+      return (
+        <CrudBlock
+          title="Centro de Custo"
+          subtitle="Use para agrupar vendas, compras e contas avulsas por área — ex: Postura, Fábrica de Ração, Administrativo."
+          filialId={filialId}
+          items={scoped("centrosCusto")}
+          onChange={set("centrosCusto")}
+          fields={[{ key: "nome", label: "Nome", required: true }, { key: "codigo", label: "Código" }]}
+        />
+      );
     case "contabilidade":
       return <Contabilidade db={db} filialId={filialId} />;
     case "logistica":
       return <Logistica db={db} update={update} filialId={filialId} />;
     case "fiscal":
-      return <Fiscal db={db} filialId={filialId} />;
+      return <Fiscal db={db} update={update} filialId={filialId} />;
     default:
       return null;
   }
@@ -708,9 +775,14 @@ function Inicio({ db, filialId }) {
   const vendas = db.vendas.filter((v) => v.filialId === filialId);
   const compras = db.compras.filter((c) => c.filialId === filialId);
   const fretes = db.fretes.filter((f) => f.filialId === filialId);
+  const avulsas = db.contasAvulsas.filter((a) => a.filialId === filialId);
+  const aberto = (s) => s !== "pago" && s !== "cancelado";
   const totalReceita = vendas.reduce((s, v) => s + Number(v.total || 0), 0);
-  const totalReceber = vendas.filter((v) => v.statusPagamento !== "pago").reduce((s, v) => s + Number(v.total || 0), 0);
-  const totalPagar = [...compras, ...fretes].filter((c) => c.statusPagamento !== "pago").reduce((s, c) => s + Number(c.valor || c.valorFrete || 0), 0);
+  const totalReceber = vendas.flatMap((v) => v.parcelas || []).filter((p) => aberto(p.status)).reduce((s, p) => s + Number(p.valor || 0), 0)
+    + avulsas.filter((a) => a.tipo === "receber" && aberto(a.status)).reduce((s, a) => s + Number(a.valor || 0), 0);
+  const totalPagar = compras.flatMap((c) => c.parcelas || []).filter((p) => aberto(p.status)).reduce((s, p) => s + Number(p.valor || 0), 0)
+    + fretes.filter((f) => aberto(f.statusPagamento)).reduce((s, f) => s + Number(f.valorFrete || 0), 0)
+    + avulsas.filter((a) => a.tipo === "pagar" && aberto(a.status)).reduce((s, a) => s + Number(a.valor || 0), 0);
   const totalDespesas = compras.reduce((s, c) => s + Number(c.valor || 0), 0) + fretes.reduce((s, f) => s + Number(f.valorFrete || 0), 0);
 
   return (
@@ -730,7 +802,7 @@ function Inicio({ db, filialId }) {
           columns={[
             { key: "data", label: "Data" },
             { key: "total", label: "Valor", render: (r) => brl(r.total) },
-            { key: "statusPagamento", label: "Status", render: (r) => <StatusPill status={r.statusPagamento} /> },
+            { key: "parcelas", label: "Parcelas em aberto", render: (r) => (r.parcelas || []).filter((p) => aberto(p.status)).length },
           ]}
           rows={[...vendas].sort((a, b) => (a.data < b.data ? 1 : -1)).slice(0, 6)}
           emptyText="Nenhuma venda lançada ainda — vá ao módulo Vendas para começar."
@@ -740,12 +812,46 @@ function Inicio({ db, filialId }) {
   );
 }
 
-function StatusPill({ status }) {
-  const ok = status === "pago";
+function StatusBadge({ status }) {
+  const s = STATUS_FINANCEIRO.find((x) => x.value === status) || STATUS_FINANCEIRO[0];
   return (
-    <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 9px", borderRadius: 999, background: ok ? "#E4F3E9" : "#FBEAE4", color: ok ? SUCCESS : DANGER }}>
-      {ok ? "Pago" : "Pendente"}
+    <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 9px", borderRadius: 999, background: s.bg, color: s.color }}>
+      {s.label}
     </span>
+  );
+}
+
+function StatusSelect({ status, onChange }) {
+  const s = STATUS_FINANCEIRO.find((x) => x.value === status) || STATUS_FINANCEIRO[0];
+  return (
+    <select
+      value={status || "pendente"}
+      onChange={(e) => onChange(e.target.value)}
+      style={{
+        fontSize: 11, fontWeight: 700, padding: "3px 6px", borderRadius: 999,
+        background: s.bg, color: s.color, border: "none", cursor: "pointer",
+      }}
+    >
+      {STATUS_FINANCEIRO.map((opt) => (
+        <option key={opt.value} value={opt.value}>{opt.label}</option>
+      ))}
+    </select>
+  );
+}
+
+function ParcelasList({ parcelas, onStatusChange }) {
+  if (!parcelas || !parcelas.length) return <span style={{ color: MUTED, fontSize: 12 }}>—</span>;
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+      {parcelas.map((p) => (
+        <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11.5 }}>
+          <span style={{ color: MUTED, minWidth: 46 }}>{p.numero}/{p.de}</span>
+          <span style={{ minWidth: 76 }}>{p.vencimento?.split("-").reverse().join("/")}</span>
+          <span style={{ minWidth: 90, fontWeight: 700 }}>{brl(p.valor)}</span>
+          <StatusSelect status={p.status} onChange={(v) => onStatusChange(p.id, v)} />
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -887,13 +993,107 @@ function Usuarios({ db, update, empresaId }) {
 
 /* ---------------- Vendas & Comissões ---------------- */
 
+function linkBtnStyle(color) {
+  return { border: "none", background: "none", color, cursor: "pointer", fontSize: 10.5, fontWeight: 700, padding: 0 };
+}
+
+/* Cadastro completo de Cliente/Fornecedor para fins fiscais, com anexo de documentos. */
+function CadastroPessoa({ title, subtitle, items, onChange, filialId }) {
+  const blank = { id: null, razaoSocial: "", cpfCnpj: "", inscricaoEstadual: "", endereco: "", numero: "", bairro: "", cidade: "", uf: "", telefone1: "", telefone2: "", email1: "", email2: "", responsavel: "", anexos: [] };
+  const [draft, setDraft] = useState(blank);
+  const editing = !!draft.id;
+
+  function submit(e) {
+    e.preventDefault();
+    if (!draft.razaoSocial) return;
+    if (editing) onChange(items.map((it) => (it.id === draft.id ? draft : it)));
+    else onChange([...items, { ...draft, id: uid(), filialId }]);
+    setDraft(blank);
+  }
+  function edit(row) { setDraft({ ...blank, ...row }); }
+  function remove(row) { onChange(items.filter((it) => it.id !== row.id)); if (draft.id === row.id) setDraft(blank); }
+
+  function anexarArquivo(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (file.size > 1.5 * 1024 * 1024) { alert("Arquivo muito grande para este protótipo (limite de 1,5 MB por arquivo). Use um arquivo menor."); e.target.value = ""; return; }
+    const reader = new FileReader();
+    reader.onload = () => setDraft((d) => ({ ...d, anexos: [...(d.anexos || []), { id: uid(), nome: file.name, tipo: file.type, dataUrl: reader.result }] }));
+    reader.readAsDataURL(file);
+    e.target.value = "";
+  }
+  function removerAnexo(anexoId) {
+    setDraft((d) => ({ ...d, anexos: (d.anexos || []).filter((a) => a.id !== anexoId) }));
+  }
+
+  return (
+    <Card title={title} subtitle={subtitle}>
+      <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: 10 }}>
+          <Field label="Razão social / Nome"><TextInput value={draft.razaoSocial} onChange={(e) => setDraft({ ...draft, razaoSocial: e.target.value })} /></Field>
+          <Field label="CPF / CNPJ"><TextInput value={draft.cpfCnpj} onChange={(e) => setDraft({ ...draft, cpfCnpj: e.target.value })} /></Field>
+          <Field label="Inscrição estadual"><TextInput value={draft.inscricaoEstadual} onChange={(e) => setDraft({ ...draft, inscricaoEstadual: e.target.value })} /></Field>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: 10 }}>
+          <Field label="Endereço"><TextInput value={draft.endereco} onChange={(e) => setDraft({ ...draft, endereco: e.target.value })} /></Field>
+          <Field label="Número"><TextInput value={draft.numero} onChange={(e) => setDraft({ ...draft, numero: e.target.value })} /></Field>
+          <Field label="Bairro"><TextInput value={draft.bairro} onChange={(e) => setDraft({ ...draft, bairro: e.target.value })} /></Field>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 10 }}>
+          <Field label="Cidade"><TextInput value={draft.cidade} onChange={(e) => setDraft({ ...draft, cidade: e.target.value })} /></Field>
+          <Field label="UF"><TextInput maxLength={2} value={draft.uf} onChange={(e) => setDraft({ ...draft, uf: e.target.value.toUpperCase() })} /></Field>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 10 }}>
+          <Field label="Telefone 1"><TextInput value={draft.telefone1} onChange={(e) => setDraft({ ...draft, telefone1: e.target.value })} /></Field>
+          <Field label="Telefone 2"><TextInput value={draft.telefone2} onChange={(e) => setDraft({ ...draft, telefone2: e.target.value })} /></Field>
+          <Field label="E-mail 1"><TextInput type="email" value={draft.email1} onChange={(e) => setDraft({ ...draft, email1: e.target.value })} /></Field>
+          <Field label="E-mail 2"><TextInput type="email" value={draft.email2} onChange={(e) => setDraft({ ...draft, email2: e.target.value })} /></Field>
+        </div>
+        <Field label="Responsável"><TextInput value={draft.responsavel} onChange={(e) => setDraft({ ...draft, responsavel: e.target.value })} /></Field>
+        <div>
+          <div style={{ fontSize: 12.5, fontWeight: 700, color: MUTED, marginBottom: 6 }}>Documentos (imagem ou PDF, até 1,5 MB)</div>
+          <input type="file" accept="image/*,.pdf" onChange={anexarArquivo} style={{ fontSize: 12.5 }} />
+          {!!(draft.anexos || []).length && (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 8 }}>
+              {draft.anexos.map((a) => (
+                <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 6, background: BG, border: `1px solid ${BORDER}`, borderRadius: 999, padding: "4px 10px", fontSize: 11.5 }}>
+                  <a href={a.dataUrl} download={a.nome} style={{ color: GREEN, textDecoration: "none", fontWeight: 700 }}>{a.nome}</a>
+                  <button type="button" onClick={() => removerAnexo(a.id)} style={{ border: "none", background: "none", color: DANGER, cursor: "pointer", fontWeight: 700 }}>×</button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <Button type="submit">{editing ? "Salvar alteração" : "Adicionar"}</Button>
+          {editing && <Button type="button" variant="ghost" onClick={() => setDraft(blank)}>Cancelar</Button>}
+        </div>
+      </form>
+      <div style={{ height: 1, background: BORDER, margin: "16px 0" }} />
+      <Table
+        columns={[
+          { key: "razaoSocial", label: "Razão social / Nome" },
+          { key: "cpfCnpj", label: "CPF/CNPJ" },
+          { key: "cidade", label: "Cidade/UF", render: (r) => [r.cidade, r.uf].filter(Boolean).join("/") || "—" },
+          { key: "telefone1", label: "Telefone" },
+          { key: "anexos", label: "Docs", render: (r) => (r.anexos?.length ? `${r.anexos.length} arquivo(s)` : "—") },
+        ]}
+        rows={items}
+        onEdit={edit}
+        onDelete={remove}
+      />
+    </Card>
+  );
+}
+
 function Vendas({ db, update, filialId }) {
   const produtos = db.produtos.filter((p) => p.filialId === filialId);
   const vendedores = db.vendedores.filter((v) => v.filialId === filialId);
   const clientes = db.clientes.filter((c) => c.filialId === filialId);
+  const centrosCusto = db.centrosCusto.filter((c) => c.filialId === filialId);
   const vendas = db.vendas.filter((v) => v.filialId === filialId);
 
-  const [form, setForm] = useState({ data: todayISO(), clienteId: "", vendedorId: "", produtoId: "", qtd: "", precoUnit: "" });
+  const [form, setForm] = useState({ data: todayISO(), clienteId: "", vendedorId: "", produtoId: "", qtd: "", precoUnit: "", condicaoPagamento: "vista_pix", centroCustoId: "" });
 
   function precoAoEscolher(produtoId) {
     const p = produtos.find((x) => x.id === produtoId);
@@ -905,45 +1105,96 @@ function Vendas({ db, update, filialId }) {
     const vendedor = vendedores.find((v) => v.id === form.vendedorId);
     const total = Number(form.qtd || 0) * Number(form.precoUnit || 0);
     const comissaoValor = vendedor ? total * (Number(vendedor.percentualComissao || 0) / 100) : 0;
+    let comissaoGerenteValor = 0;
+    let gerenteComercialId = null;
+    if (vendedor && vendedor.gerenteComercialId) {
+      const gerente = vendedores.find((v) => v.id === vendedor.gerenteComercialId);
+      if (gerente) {
+        gerenteComercialId = gerente.id;
+        comissaoGerenteValor = total * (Number(gerente.percentualComissaoGerente || 0) / 100);
+      }
+    }
+    const condicao = form.condicaoPagamento || "vista_pix";
+    const parcelas = gerarParcelas(condicao, total, form.data);
     const venda = {
       id: uid(), filialId, data: form.data, clienteId: form.clienteId, vendedorId: form.vendedorId,
       itens: [{ produtoId: form.produtoId, qtd: Number(form.qtd), precoUnit: Number(form.precoUnit) }],
-      total, comissaoValor, statusPagamento: "pendente",
+      total, comissaoValor, gerenteComercialId, comissaoGerenteValor,
+      condicaoPagamento: condicao, centroCustoId: form.centroCustoId || "",
+      parcelas, nfe: null,
     };
-    update((prev) => ({ ...prev, vendas: [...prev.vendas, venda] }));
-    setForm({ data: todayISO(), clienteId: "", vendedorId: "", produtoId: "", qtd: "", precoUnit: "" });
+    update((prev) => ({
+      ...prev,
+      vendas: [...prev.vendas, venda],
+      movimentacoesEstoque: [...prev.movimentacoesEstoque, { id: uid(), filialId, data: form.data, produtoId: form.produtoId, tipo: "saida", qtd: Number(form.qtd), motivo: "Venda", origem: "venda:" + venda.id }],
+    }));
+    setForm({ data: todayISO(), clienteId: "", vendedorId: "", produtoId: "", qtd: "", precoUnit: "", condicaoPagamento: "vista_pix", centroCustoId: "" });
   }
 
-  function marcarPago(v) {
-    update((prev) => ({ ...prev, vendas: prev.vendas.map((x) => (x.id === v.id ? { ...x, statusPagamento: x.statusPagamento === "pago" ? "pendente" : "pago", dataRecebimento: todayISO() } : x)) }));
+  function atualizarParcela(vendaId, parcelaId, status) {
+    update((prev) => ({
+      ...prev,
+      vendas: prev.vendas.map((v) => (v.id !== vendaId ? v : { ...v, parcelas: v.parcelas.map((p) => (p.id === parcelaId ? { ...p, status } : p)) })),
+    }));
+  }
+
+  function emitirNFe(venda) {
+    update((prev) => ({
+      ...prev,
+      vendas: prev.vendas.map((v) => (v.id !== venda.id ? v : { ...v, nfe: { status: "autorizada", chave: gerarChaveAcessoFake(), protocolo: gerarProtocoloFake(), dataEmissao: todayISO(), ambiente: "homologacao" } })),
+    }));
+  }
+  function cancelarNFe(venda) {
+    const justificativa = window.prompt("Justificativa do cancelamento (mínimo 15 caracteres — exigência real da SEFAZ):");
+    if (!justificativa || justificativa.trim().length < 15) { alert("Cancelamento não realizado: a justificativa precisa ter pelo menos 15 caracteres."); return; }
+    update((prev) => ({
+      ...prev,
+      vendas: prev.vendas.map((v) => (v.id !== venda.id ? v : { ...v, nfe: { ...v.nfe, status: "cancelada", dataCancelamento: todayISO(), justificativaCancelamento: justificativa } })),
+    }));
+  }
+  function consultarNFe(venda) {
+    if (!venda.nfe) { alert("Esta venda ainda não teve NF-e emitida."); return; }
+    alert(`Consulta simulada — ambiente de HOMOLOGAÇÃO, sem conexão real com a SEFAZ.\n\nStatus: ${venda.nfe.status}\nChave de acesso: ${venda.nfe.chave}\nProtocolo: ${venda.nfe.protocolo}`);
   }
 
   const nomeProduto = (id) => produtos.find((p) => p.id === id)?.nome || "—";
-  const nomeCliente = (id) => clientes.find((c) => c.id === id)?.nome || "—";
-  const nomeVendedor = (id) => vendedores.find((v) => v.id === id)?.nome || "—";
+  const nomeCliente = (id) => clientes.find((c) => c.id === id)?.razaoSocial || "—";
+  const nomeVendedor = (id) => { const v = vendedores.find((x) => x.id === id); return v ? (v.apelido || v.nomeCompleto) : "—"; };
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-        <CrudBlock
-          title="Clientes" filialId={filialId} items={clientes} onChange={(items) => update((prev) => ({ ...prev, clientes: mergeByFilial(prev.clientes, items, filialId) }))}
-          fields={[{ key: "nome", label: "Nome", required: true }, { key: "cidade", label: "Cidade" }, { key: "uf", label: "UF" }]}
-        />
-        <CrudBlock
-          title="Vendedores & Comissão" filialId={filialId} items={vendedores} onChange={(items) => update((prev) => ({ ...prev, vendedores: mergeByFilial(prev.vendedores, items, filialId) }))}
-          fields={[{ key: "nome", label: "Nome", required: true }, { key: "percentualComissao", label: "Comissão (%)", type: "number" }]}
-          columns={[{ key: "nome", label: "Nome" }, { key: "percentualComissao", label: "Comissão", render: (r) => `${r.percentualComissao || 0}%` }]}
-        />
-      </div>
+      <CadastroPessoa title="Clientes" subtitle="Cadastro completo para fins fiscais — usado na emissão de NF-e." items={clientes} filialId={filialId}
+        onChange={(items) => update((prev) => ({ ...prev, clientes: mergeByFilial(prev.clientes, items, filialId) }))} />
 
-      <Card title="Lançar venda" subtitle="Gera automaticamente uma conta a receber e alimenta a DRE.">
-        <form onSubmit={lancarVenda} style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr 1fr 1fr", gap: 10, alignItems: "end" }}>
+      <CrudBlock
+        title="Vendedores & Comissão" subtitle="Cada vendedor pode ter um gerente comercial, que recebe uma comissão adicional sobre as vendas dele."
+        filialId={filialId} items={vendedores} onChange={(items) => update((prev) => ({ ...prev, vendedores: mergeByFilial(prev.vendedores, items, filialId) }))}
+        fields={[
+          { key: "nomeCompleto", label: "Nome completo", required: true },
+          { key: "apelido", label: "Apelido" },
+          { key: "telefone", label: "Telefone" },
+          { key: "percentualComissao", label: "Comissão (%)", type: "number" },
+          { key: "gerenteComercialId", label: "Gerente comercial", type: "select", options: vendedores.map((v) => ({ value: v.id, label: v.apelido || v.nomeCompleto })) },
+          { key: "percentualComissaoGerente", label: "Comissão do gerente (%)", type: "number" },
+        ]}
+        columns={[
+          { key: "nomeCompleto", label: "Nome" },
+          { key: "apelido", label: "Apelido" },
+          { key: "percentualComissao", label: "Comissão", render: (r) => `${r.percentualComissao || 0}%` },
+          { key: "gerenteComercialId", label: "Gerente", render: (r) => { const g = vendedores.find((x) => x.id === r.gerenteComercialId); return g ? `${g.apelido || g.nomeCompleto} (${r.percentualComissaoGerente || 0}%)` : "—"; } },
+        ]}
+      />
+
+      <Card title="Lançar venda" subtitle="Gera parcelas conforme a condição de pagamento, alimenta contas a receber, comissões e a DRE.">
+        <form onSubmit={lancarVenda} style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, alignItems: "end" }}>
           <Field label="Data"><TextInput type="date" value={form.data} onChange={(e) => setForm({ ...form, data: e.target.value })} /></Field>
-          <Field label="Cliente"><Select options={clientes.map((c) => ({ value: c.id, label: c.nome }))} value={form.clienteId} onChange={(e) => setForm({ ...form, clienteId: e.target.value })} /></Field>
-          <Field label="Vendedor"><Select options={vendedores.map((v) => ({ value: v.id, label: v.nome }))} value={form.vendedorId} onChange={(e) => setForm({ ...form, vendedorId: e.target.value })} /></Field>
+          <Field label="Cliente"><Select options={clientes.map((c) => ({ value: c.id, label: c.razaoSocial }))} value={form.clienteId} onChange={(e) => setForm({ ...form, clienteId: e.target.value })} /></Field>
+          <Field label="Vendedor"><Select options={vendedores.map((v) => ({ value: v.id, label: v.apelido || v.nomeCompleto }))} value={form.vendedorId} onChange={(e) => setForm({ ...form, vendedorId: e.target.value })} /></Field>
           <Field label="Produto"><Select options={produtos.map((p) => ({ value: p.id, label: p.nome }))} value={form.produtoId} onChange={(e) => precoAoEscolher(e.target.value)} /></Field>
           <Field label="Qtd"><TextInput type="number" step="0.01" value={form.qtd} onChange={(e) => setForm({ ...form, qtd: e.target.value })} /></Field>
           <Field label="Preço unit. (R$)"><TextInput type="number" step="0.01" value={form.precoUnit} onChange={(e) => setForm({ ...form, precoUnit: e.target.value })} /></Field>
+          <Field label="Condição de pagamento"><Select options={CONDICOES_PAGAMENTO} value={form.condicaoPagamento} onChange={(e) => setForm({ ...form, condicaoPagamento: e.target.value })} /></Field>
+          <Field label="Centro de custo"><Select options={centrosCusto.map((c) => ({ value: c.id, label: c.nome }))} value={form.centroCustoId} onChange={(e) => setForm({ ...form, centroCustoId: e.target.value })} /></Field>
           <div style={{ gridColumn: "1 / -1" }}><Button type="submit">Lançar venda</Button></div>
         </form>
       </Card>
@@ -956,8 +1207,25 @@ function Vendas({ db, update, filialId }) {
             { key: "vendedorId", label: "Vendedor", render: (r) => nomeVendedor(r.vendedorId) },
             { key: "produto", label: "Produto", render: (r) => nomeProduto(r.itens[0]?.produtoId) },
             { key: "total", label: "Total", render: (r) => brl(r.total) },
-            { key: "comissaoValor", label: "Comissão", render: (r) => brl(r.comissaoValor) },
-            { key: "statusPagamento", label: "Recebimento", render: (r) => <button onClick={() => marcarPago(r)} style={{ border: "none", background: "none", cursor: "pointer" }}><StatusPill status={r.statusPagamento} /></button> },
+            { key: "comissaoValor", label: "Comissão", render: (r) => <span>{brl(r.comissaoValor)}{r.comissaoGerenteValor > 0 && <><br /><span style={{ fontSize: 10.5, color: MUTED }}>+ gerente: {brl(r.comissaoGerenteValor)}</span></>}</span> },
+            { key: "condicaoPagamento", label: "Condição", render: (r) => CONDICOES_PAGAMENTO.find((c) => c.value === r.condicaoPagamento)?.label || "—" },
+            { key: "parcelas", label: "Parcelas / recebimento", render: (r) => <ParcelasList parcelas={r.parcelas} onStatusChange={(pid, st) => atualizarParcela(r.id, pid, st)} /> },
+            {
+              key: "nfe", label: "NF-e", render: (r) => (
+                <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                  {r.nfe ? (
+                    <span style={{ fontSize: 11, fontWeight: 700, color: r.nfe.status === "cancelada" ? DANGER : SUCCESS }}>
+                      {r.nfe.status === "cancelada" ? "Cancelada" : "Autorizada"} (homolog.)
+                    </span>
+                  ) : <span style={{ fontSize: 11, color: MUTED }}>Não emitida</span>}
+                  <div style={{ display: "flex", gap: 8 }}>
+                    {!r.nfe && <button onClick={() => emitirNFe(r)} style={linkBtnStyle(GREEN)}>emitir</button>}
+                    {r.nfe && r.nfe.status !== "cancelada" && <button onClick={() => cancelarNFe(r)} style={linkBtnStyle(DANGER)}>cancelar</button>}
+                    {r.nfe && <button onClick={() => consultarNFe(r)} style={linkBtnStyle(MUTED)}>consultar</button>}
+                  </div>
+                </div>
+              ),
+            },
           ]}
           rows={[...vendas].sort((a, b) => (a.data < b.data ? 1 : -1))}
         />
@@ -970,29 +1238,47 @@ function Vendas({ db, update, filialId }) {
 
 function Estoque({ db, filialId }) {
   const produtos = db.produtos.filter((p) => p.filialId === filialId);
-  const vendas = db.vendas.filter((v) => v.filialId === filialId);
+  const movimentacoes = db.movimentacoesEstoque.filter((m) => m.filialId === filialId);
   const producoes = db.producoesRacao.filter((p) => p.filialId === filialId);
 
-  const saldoVendido = {};
-  vendas.forEach((v) => v.itens.forEach((it) => { saldoVendido[it.produtoId] = (saldoVendido[it.produtoId] || 0) + Number(it.qtd || 0); }));
+  const saldoPorProduto = {};
+  movimentacoes.forEach((m) => {
+    const delta = m.tipo === "entrada" ? Number(m.qtd || 0) : -Number(m.qtd || 0);
+    saldoPorProduto[m.produtoId] = (saldoPorProduto[m.produtoId] || 0) + delta;
+  });
 
   const racaoProduzida = producoes.reduce((s, p) => s + Number(p.qtdKg || 0), 0);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      <Card title="Saldo por produto" subtitle="Saída calculada a partir das vendas lançadas (estoque simplificado — sem entrada manual de produção de ovos neste protótipo).">
+      <Card title="Saldo por produto" subtitle="Entradas (compras e importação de XML) menos saídas (vendas), lançamento a lançamento.">
         <Table
           columns={[
             { key: "nome", label: "Produto" },
             { key: "unidade", label: "Unidade" },
-            { key: "vendido", label: "Saída (vendas)", render: (r) => (saldoVendido[r.id] || 0).toLocaleString("pt-BR") },
+            { key: "lote", label: "Lote", render: (r) => r.lote || "—" },
+            { key: "saldo", label: "Saldo atual", render: (r) => (saldoPorProduto[r.id] || 0).toLocaleString("pt-BR") },
             { key: "valorEstoque", label: "Custo unitário", render: (r) => brl(r.custoUnit) },
           ]}
           rows={produtos}
         />
       </Card>
+      <Card title="Movimentações recentes">
+        <Table
+          columns={[
+            { key: "data", label: "Data" },
+            { key: "produtoId", label: "Produto", render: (r) => produtos.find((p) => p.id === r.produtoId)?.nome || "—" },
+            { key: "tipo", label: "Tipo", render: (r) => (r.tipo === "entrada" ? "Entrada" : "Saída") },
+            { key: "qtd", label: "Qtd", render: (r) => r.qtd.toLocaleString("pt-BR") },
+            { key: "motivo", label: "Motivo" },
+          ]}
+          rows={[...movimentacoes].sort((a, b) => (a.data < b.data ? 1 : -1)).slice(0, 20)}
+          emptyText="Nenhuma movimentação registrada ainda."
+        />
+      </Card>
       <Card title="Estoque de ração produzida">
         <div style={{ fontSize: 22, fontWeight: 800, color: GREEN }}>{racaoProduzida.toLocaleString("pt-BR")} kg</div>
+
         <div style={{ fontSize: 12.5, color: MUTED }}>Total produzido registrado no módulo Fábrica de Ração.</div>
       </Card>
     </div>
@@ -1086,38 +1372,155 @@ function FabricaRacao({ db, update, filialId }) {
 
 /* ---------------- Compras ---------------- */
 
+/* Leitura de XML de NF-e (DANFE eletrônico) no navegador — sem backend. */
+function parseNFeXML(xmlText) {
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(xmlText, "text/xml");
+  if (doc.querySelector("parsererror")) throw new Error("XML inválido ou mal formado.");
+  const txt = (root, tag) => (root ? root.getElementsByTagName(tag)[0]?.textContent?.trim() || "" : "");
+
+  const infNFe = doc.getElementsByTagName("infNFe")[0];
+  if (!infNFe) throw new Error("Não encontrei a tag <infNFe> — este arquivo não parece ser um XML de NF-e.");
+
+  const emit = infNFe.getElementsByTagName("emit")[0];
+  const ide = infNFe.getElementsByTagName("ide")[0];
+  const total = infNFe.getElementsByTagName("ICMSTot")[0];
+  const chaveAcesso = (infNFe.getAttribute("Id") || "").replace(/^NFe/, "");
+
+  const itens = Array.from(infNFe.getElementsByTagName("det")).map((det) => {
+    const prod = det.getElementsByTagName("prod")[0];
+    return {
+      codigo: txt(prod, "cProd"),
+      nome: txt(prod, "xProd") || "Item sem descrição",
+      ncm: txt(prod, "NCM"),
+      cfop: txt(prod, "CFOP"),
+      unidade: txt(prod, "uCom"),
+      qtd: parseFloat(txt(prod, "qCom")) || 0,
+      valorUnit: parseFloat(txt(prod, "vUnCom")) || 0,
+      valorTotal: parseFloat(txt(prod, "vProd")) || 0,
+    };
+  });
+  if (!itens.length) throw new Error("O XML não contém itens de produto (<det>/<prod>).");
+
+  return {
+    chaveAcesso,
+    numero: txt(ide, "nNF"),
+    dataEmissao: (txt(ide, "dhEmi") || "").slice(0, 10) || todayISO(),
+    fornecedor: { cnpj: txt(emit, "CNPJ"), nome: txt(emit, "xNome") || "Fornecedor do XML" },
+    valorTotal: parseFloat(txt(total, "vNF")) || itens.reduce((s, i) => s + i.valorTotal, 0),
+    itens,
+  };
+}
+
 function Compras({ db, update, filialId }) {
   const fornecedores = db.fornecedores.filter((f) => f.filialId === filialId);
   const compras = db.compras.filter((c) => c.filialId === filialId);
-  const [form, setForm] = useState({ data: todayISO(), fornecedorId: "", categoria: "insumo", descricao: "", valor: "" });
+  const produtos = db.produtos.filter((p) => p.filialId === filialId);
+  const centrosCusto = db.centrosCusto.filter((c) => c.filialId === filialId);
+  const [form, setForm] = useState({ data: todayISO(), fornecedorId: "", categoria: "insumo", descricao: "", valor: "", condicaoPagamento: "boleto_30", centroCustoId: "" });
+  const [xmlPreview, setXmlPreview] = useState(null);
+  const [xmlError, setXmlError] = useState("");
 
   function lancar(e) {
     e.preventDefault();
-    update((prev) => ({ ...prev, compras: [...prev.compras, { id: uid(), filialId, ...form, valor: Number(form.valor), statusPagamento: "pendente" }] }));
-    setForm({ data: todayISO(), fornecedorId: "", categoria: "insumo", descricao: "", valor: "" });
+    const parcelas = gerarParcelas(form.condicaoPagamento || "boleto_30", Number(form.valor || 0), form.data);
+    update((prev) => ({
+      ...prev,
+      compras: [...prev.compras, { id: uid(), filialId, data: form.data, fornecedorId: form.fornecedorId, categoria: form.categoria, descricao: form.descricao, valor: Number(form.valor), condicaoPagamento: form.condicaoPagamento, centroCustoId: form.centroCustoId, parcelas }],
+    }));
+    setForm({ data: todayISO(), fornecedorId: "", categoria: "insumo", descricao: "", valor: "", condicaoPagamento: "boleto_30", centroCustoId: "" });
   }
 
-  function marcarPago(c) {
-    update((prev) => ({ ...prev, compras: prev.compras.map((x) => (x.id === c.id ? { ...x, statusPagamento: x.statusPagamento === "pago" ? "pendente" : "pago", dataPagamento: todayISO() } : x)) }));
+  function atualizarParcela(compraId, parcelaId, status) {
+    update((prev) => ({ ...prev, compras: prev.compras.map((c) => (c.id !== compraId ? c : { ...c, parcelas: c.parcelas.map((p) => (p.id === parcelaId ? { ...p, status } : p)) })) }));
   }
 
-  const nomeFornecedor = (id) => fornecedores.find((f) => f.id === id)?.nome || "—";
+  function handleXmlFile(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    setXmlError("");
+    const reader = new FileReader();
+    reader.onload = () => {
+      try { setXmlPreview(parseNFeXML(reader.result)); }
+      catch (err) { setXmlError(err.message || "Não foi possível ler este XML."); setXmlPreview(null); }
+    };
+    reader.readAsText(file);
+    e.target.value = "";
+  }
+
+  function confirmarImportacaoXML() {
+    if (!xmlPreview) return;
+    update((prev) => {
+      let fornecedoresNext = prev.fornecedores;
+      let fornecedor = xmlPreview.fornecedor.cnpj && fornecedoresNext.find((f) => f.filialId === filialId && f.cpfCnpj === xmlPreview.fornecedor.cnpj);
+      if (!fornecedor) {
+        fornecedor = { id: uid(), filialId, razaoSocial: xmlPreview.fornecedor.nome, cpfCnpj: xmlPreview.fornecedor.cnpj, inscricaoEstadual: "", endereco: "", numero: "", bairro: "", cidade: "", uf: "", telefone1: "", telefone2: "", email1: "", email2: "", responsavel: "", anexos: [] };
+        fornecedoresNext = [...fornecedoresNext, fornecedor];
+      }
+      let produtosNext = prev.produtos;
+      const movimentacoes = [];
+      xmlPreview.itens.forEach((item) => {
+        let produto = produtosNext.find((p) => p.filialId === filialId && p.nome.trim().toLowerCase() === item.nome.trim().toLowerCase());
+        if (!produto) {
+          produto = { id: uid(), filialId, nome: item.nome, tipo: "outro", unidade: (item.unidade || "un").toLowerCase(), custoUnit: item.valorUnit, precoVenda: "", lote: "", cfop: item.cfop };
+          produtosNext = [...produtosNext, produto];
+        }
+        movimentacoes.push({ id: uid(), filialId, data: xmlPreview.dataEmissao, produtoId: produto.id, tipo: "entrada", qtd: item.qtd, motivo: "Importação XML NF-e nº " + xmlPreview.numero, origem: "xml:" + xmlPreview.chaveAcesso });
+      });
+      const parcelas = gerarParcelas("boleto_30", xmlPreview.valorTotal, xmlPreview.dataEmissao);
+      const compra = {
+        id: uid(), filialId, data: xmlPreview.dataEmissao, fornecedorId: fornecedor.id,
+        categoria: "insumo", descricao: `Importação XML NF-e nº ${xmlPreview.numero}`, valor: xmlPreview.valorTotal,
+        condicaoPagamento: "boleto_30", centroCustoId: "", parcelas, origemXml: true, chaveAcessoOrigem: xmlPreview.chaveAcesso,
+      };
+      return { ...prev, fornecedores: fornecedoresNext, produtos: produtosNext, compras: [...prev.compras, compra], movimentacoesEstoque: [...prev.movimentacoesEstoque, ...movimentacoes] };
+    });
+    setXmlPreview(null);
+  }
+
+  const nomeFornecedor = (id) => fornecedores.find((f) => f.id === id)?.razaoSocial || "—";
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      <CrudBlock
-        title="Fornecedores" filialId={filialId} items={fornecedores} onChange={(items) => update((prev) => ({ ...prev, fornecedores: mergeByFilial(prev.fornecedores, items, filialId) }))}
-        fields={[{ key: "nome", label: "Nome", required: true }, { key: "cidade", label: "Cidade" }]}
-      />
-      <Card title="Lançar compra" subtitle="Gera automaticamente uma conta a pagar e alimenta a DRE como despesa.">
-        <form onSubmit={lancar} style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 2fr 1fr", gap: 10, alignItems: "end" }}>
+      <CadastroPessoa title="Fornecedores" subtitle="Cadastro completo para fins fiscais." items={fornecedores} filialId={filialId}
+        onChange={(items) => update((prev) => ({ ...prev, fornecedores: mergeByFilial(prev.fornecedores, items, filialId) }))} />
+
+      <Card title="Importar XML de NF-e de compra" subtitle="Lê o XML no seu navegador, cadastra fornecedor/produtos novos automaticamente e dá entrada no estoque.">
+        <input type="file" accept=".xml,text/xml" onChange={handleXmlFile} style={{ fontSize: 12.5 }} />
+        {xmlError && <div style={{ color: DANGER, fontSize: 12.5, marginTop: 10 }}>{xmlError}</div>}
+        {xmlPreview && (
+          <div style={{ marginTop: 14, background: BG, border: `1px solid ${BORDER}`, borderRadius: 10, padding: 14 }}>
+            <div style={{ fontSize: 13, fontWeight: 800, color: GREEN }}>NF-e nº {xmlPreview.numero} — {xmlPreview.fornecedor.nome}</div>
+            <div style={{ fontSize: 11.5, color: MUTED, marginBottom: 8 }}>CNPJ {xmlPreview.fornecedor.cnpj || "não informado"} · Emissão {xmlPreview.dataEmissao} · Total {brl(xmlPreview.valorTotal)}</div>
+            <Table
+              columns={[
+                { key: "nome", label: "Produto" },
+                { key: "cfop", label: "CFOP" },
+                { key: "qtd", label: "Qtd" },
+                { key: "valorUnit", label: "Vlr. unit.", render: (r) => brl(r.valorUnit) },
+                { key: "valorTotal", label: "Vlr. total", render: (r) => brl(r.valorTotal) },
+              ]}
+              rows={xmlPreview.itens}
+            />
+            <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+              <Button onClick={confirmarImportacaoXML}>Confirmar importação</Button>
+              <Button variant="ghost" onClick={() => setXmlPreview(null)}>Descartar</Button>
+            </div>
+          </div>
+        )}
+      </Card>
+
+      <Card title="Lançar compra manual" subtitle="Gera parcelas conforme a condição de pagamento e alimenta a DRE como despesa.">
+        <form onSubmit={lancar} style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, alignItems: "end" }}>
           <Field label="Data"><TextInput type="date" value={form.data} onChange={(e) => setForm({ ...form, data: e.target.value })} /></Field>
-          <Field label="Fornecedor"><Select options={fornecedores.map((f) => ({ value: f.id, label: f.nome }))} value={form.fornecedorId} onChange={(e) => setForm({ ...form, fornecedorId: e.target.value })} /></Field>
+          <Field label="Fornecedor"><Select options={fornecedores.map((f) => ({ value: f.id, label: f.razaoSocial }))} value={form.fornecedorId} onChange={(e) => setForm({ ...form, fornecedorId: e.target.value })} /></Field>
           <Field label="Categoria">
             <Select options={[{ value: "insumo", label: "Insumo / Ração" }, { value: "administrativo", label: "Administrativo" }, { value: "manutencao", label: "Manutenção" }, { value: "outro", label: "Outro" }]} value={form.categoria} onChange={(e) => setForm({ ...form, categoria: e.target.value })} />
           </Field>
           <Field label="Descrição"><TextInput value={form.descricao} onChange={(e) => setForm({ ...form, descricao: e.target.value })} /></Field>
           <Field label="Valor (R$)"><TextInput type="number" step="0.01" value={form.valor} onChange={(e) => setForm({ ...form, valor: e.target.value })} /></Field>
+          <Field label="Condição de pagamento"><Select options={CONDICOES_PAGAMENTO} value={form.condicaoPagamento} onChange={(e) => setForm({ ...form, condicaoPagamento: e.target.value })} /></Field>
+          <Field label="Centro de custo"><Select options={centrosCusto.map((c) => ({ value: c.id, label: c.nome }))} value={form.centroCustoId} onChange={(e) => setForm({ ...form, centroCustoId: e.target.value })} /></Field>
           <div style={{ gridColumn: "1 / -1" }}><Button type="submit">Lançar compra</Button></div>
         </form>
       </Card>
@@ -1126,10 +1529,10 @@ function Compras({ db, update, filialId }) {
           columns={[
             { key: "data", label: "Data" },
             { key: "fornecedorId", label: "Fornecedor", render: (r) => nomeFornecedor(r.fornecedorId) },
-            { key: "categoria", label: "Categoria" },
+            { key: "categoria", label: "Categoria", render: (r) => <span>{r.categoria}{r.origemXml && <><br /><span style={{ fontSize: 10, color: MUTED }}>via XML</span></>}</span> },
             { key: "descricao", label: "Descrição" },
             { key: "valor", label: "Valor", render: (r) => brl(r.valor) },
-            { key: "statusPagamento", label: "Pagamento", render: (r) => <button onClick={() => marcarPago(r)} style={{ border: "none", background: "none", cursor: "pointer" }}><StatusPill status={r.statusPagamento} /></button> },
+            { key: "parcelas", label: "Parcelas / pagamento", render: (r) => <ParcelasList parcelas={r.parcelas} onStatusChange={(pid, st) => atualizarParcela(r.id, pid, st)} /> },
           ]}
           rows={[...compras].sort((a, b) => (a.data < b.data ? 1 : -1))}
         />
@@ -1140,17 +1543,47 @@ function Compras({ db, update, filialId }) {
 
 /* ---------------- Financeiro ---------------- */
 
-function Financeiro({ db, filialId }) {
+function Financeiro({ db, update, filialId }) {
   const vendas = db.vendas.filter((v) => v.filialId === filialId);
   const compras = db.compras.filter((c) => c.filialId === filialId);
   const fretes = db.fretes.filter((f) => f.filialId === filialId);
+  const avulsas = db.contasAvulsas.filter((a) => a.filialId === filialId);
+  const centrosCusto = db.centrosCusto.filter((c) => c.filialId === filialId);
 
-  const receber = vendas.filter((v) => v.statusPagamento !== "pago");
-  const pagarCompras = compras.filter((c) => c.statusPagamento !== "pago");
-  const pagarFretes = fretes.filter((f) => f.statusPagamento !== "pago");
+  const abertos = (s) => s !== "pago" && s !== "cancelado";
 
-  const totalReceber = receber.reduce((s, v) => s + Number(v.total || 0), 0);
-  const totalPagar = pagarCompras.reduce((s, c) => s + Number(c.valor || 0), 0) + pagarFretes.reduce((s, f) => s + Number(f.valorFrete || 0), 0);
+  // parcelas de vendas (a receber) e compras (a pagar), achatadas com referência ao documento de origem
+  const parcelasReceber = vendas.flatMap((v) => (v.parcelas || []).map((p) => ({ ...p, origem: "Venda", data: v.data, ref: v.id })));
+  const parcelasPagarCompras = compras.flatMap((c) => (c.parcelas || []).map((p) => ({ ...p, origem: c.descricao || "Compra", data: c.data, ref: c.id })));
+
+  const totalReceber = parcelasReceber.filter((p) => abertos(p.status)).reduce((s, p) => s + Number(p.valor || 0), 0)
+    + avulsas.filter((a) => a.tipo === "receber" && abertos(a.status)).reduce((s, a) => s + Number(a.valor || 0), 0);
+  const totalPagar = parcelasPagarCompras.filter((p) => abertos(p.status)).reduce((s, p) => s + Number(p.valor || 0), 0)
+    + fretes.filter((f) => abertos(f.statusPagamento)).reduce((s, f) => s + Number(f.valorFrete || 0), 0)
+    + avulsas.filter((a) => a.tipo === "pagar" && abertos(a.status)).reduce((s, a) => s + Number(a.valor || 0), 0);
+
+  function atualizarParcelaVenda(vendaId, parcelaId, status) {
+    update((prev) => ({ ...prev, vendas: prev.vendas.map((v) => (v.id !== vendaId ? v : { ...v, parcelas: v.parcelas.map((p) => (p.id === parcelaId ? { ...p, status } : p)) })) }));
+  }
+  function atualizarParcelaCompra(compraId, parcelaId, status) {
+    update((prev) => ({ ...prev, compras: prev.compras.map((c) => (c.id !== compraId ? c : { ...c, parcelas: c.parcelas.map((p) => (p.id === parcelaId ? { ...p, status } : p)) })) }));
+  }
+  function atualizarStatusFrete(freteId, status) {
+    update((prev) => ({ ...prev, fretes: prev.fretes.map((f) => (f.id === freteId ? { ...f, statusPagamento: status } : f)) }));
+  }
+  function atualizarStatusAvulsa(id, status) {
+    update((prev) => ({ ...prev, contasAvulsas: prev.contasAvulsas.map((a) => (a.id === id ? { ...a, status } : a)) }));
+  }
+
+  const [form, setForm] = useState({ tipo: "pagar", descricao: "", valor: "", vencimento: todayISO(), centroCustoId: "" });
+  function lancarAvulsa(e) {
+    e.preventDefault();
+    update((prev) => ({ ...prev, contasAvulsas: [...prev.contasAvulsas, { id: uid(), filialId, ...form, valor: Number(form.valor), status: "pendente" }] }));
+    setForm({ tipo: "pagar", descricao: "", valor: "", vencimento: todayISO(), centroCustoId: "" });
+  }
+  function removerAvulsa(a) {
+    update((prev) => ({ ...prev, contasAvulsas: prev.contasAvulsas.filter((x) => x.id !== a.id) }));
+  }
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
@@ -1159,25 +1592,71 @@ function Financeiro({ db, filialId }) {
         <StatCard label="Total a pagar" value={brl(totalPagar)} accent={DANGER} />
         <StatCard label="Saldo projetado" value={brl(totalReceber - totalPagar)} accent={GREEN} />
       </div>
-      <Card title="Contas a receber" subtitle="Gerado automaticamente a partir das vendas pendentes. Baixe o pagamento no módulo Vendas.">
+
+      <div style={{ background: "#EDE7F6", border: "1px solid #C9B8E8", borderRadius: 10, padding: "10px 14px", fontSize: 12, color: "#4A3A70" }}>
+        Os status "Faturado", "Pago" e "Em reconciliação" são atualizados manualmente aqui ou nos módulos de origem. Uma conciliação bancária automática via API do banco não está incluída neste protótipo — isso exigiria credenciais e integração real com a instituição financeira.
+      </div>
+
+      <Card title="Lançar conta avulsa" subtitle="Para lançamentos de contas a pagar ou a receber que não vêm de uma venda ou compra.">
+        <form onSubmit={lancarAvulsa} style={{ display: "grid", gridTemplateColumns: "1fr 2fr 1fr 1fr 1fr", gap: 10, alignItems: "end" }}>
+          <Field label="Tipo"><Select options={[{ value: "pagar", label: "Conta a pagar" }, { value: "receber", label: "Conta a receber" }]} value={form.tipo} onChange={(e) => setForm({ ...form, tipo: e.target.value })} /></Field>
+          <Field label="Descrição"><TextInput value={form.descricao} onChange={(e) => setForm({ ...form, descricao: e.target.value })} /></Field>
+          <Field label="Valor (R$)"><TextInput type="number" step="0.01" value={form.valor} onChange={(e) => setForm({ ...form, valor: e.target.value })} /></Field>
+          <Field label="Vencimento"><TextInput type="date" value={form.vencimento} onChange={(e) => setForm({ ...form, vencimento: e.target.value })} /></Field>
+          <Field label="Centro de custo"><Select options={centrosCusto.map((c) => ({ value: c.id, label: c.nome }))} value={form.centroCustoId} onChange={(e) => setForm({ ...form, centroCustoId: e.target.value })} /></Field>
+          <div style={{ gridColumn: "1 / -1" }}><Button type="submit">Lançar</Button></div>
+        </form>
+      </Card>
+      <Card title={`Contas avulsas (${avulsas.length})`}>
         <Table
-          columns={[{ key: "data", label: "Data da venda" }, { key: "total", label: "Valor", render: (r) => brl(r.total) }]}
-          rows={receber}
-          emptyText="Nenhuma conta a receber em aberto."
+          columns={[
+            { key: "tipo", label: "Tipo", render: (r) => (r.tipo === "pagar" ? "A pagar" : "A receber") },
+            { key: "descricao", label: "Descrição" },
+            { key: "valor", label: "Valor", render: (r) => brl(r.valor) },
+            { key: "vencimento", label: "Vencimento" },
+            { key: "status", label: "Status", render: (r) => <StatusSelect status={r.status} onChange={(v) => atualizarStatusAvulsa(r.id, v)} /> },
+          ]}
+          rows={avulsas}
+          onDelete={removerAvulsa}
         />
       </Card>
-      <Card title="Contas a pagar — compras" subtitle="Baixe o pagamento no módulo Compras.">
+
+      <Card title="Contas a receber — parcelas de vendas">
         <Table
-          columns={[{ key: "data", label: "Data" }, { key: "descricao", label: "Descrição" }, { key: "valor", label: "Valor", render: (r) => brl(r.valor) }]}
-          rows={pagarCompras}
-          emptyText="Nenhuma conta a pagar em aberto."
+          columns={[
+            { key: "data", label: "Data da venda" },
+            { key: "numero", label: "Parcela", render: (r) => `${r.numero}/${r.de}` },
+            { key: "vencimento", label: "Vencimento" },
+            { key: "valor", label: "Valor", render: (r) => brl(r.valor) },
+            { key: "status", label: "Status", render: (r) => <StatusSelect status={r.status} onChange={(v) => atualizarParcelaVenda(r.ref, r.id, v)} /> },
+          ]}
+          rows={parcelasReceber}
+          emptyText="Nenhuma parcela de venda lançada ainda."
         />
       </Card>
-      <Card title="Contas a pagar — fretes" subtitle="Baixe o pagamento no módulo Logística.">
+      <Card title="Contas a pagar — parcelas de compras">
         <Table
-          columns={[{ key: "data", label: "Data" }, { key: "destino", label: "Destino" }, { key: "valorFrete", label: "Valor", render: (r) => brl(r.valorFrete) }]}
-          rows={pagarFretes}
-          emptyText="Nenhuma conta a pagar em aberto."
+          columns={[
+            { key: "origem", label: "Compra" },
+            { key: "numero", label: "Parcela", render: (r) => `${r.numero}/${r.de}` },
+            { key: "vencimento", label: "Vencimento" },
+            { key: "valor", label: "Valor", render: (r) => brl(r.valor) },
+            { key: "status", label: "Status", render: (r) => <StatusSelect status={r.status} onChange={(v) => atualizarParcelaCompra(r.ref, r.id, v)} /> },
+          ]}
+          rows={parcelasPagarCompras}
+          emptyText="Nenhuma parcela de compra lançada ainda."
+        />
+      </Card>
+      <Card title="Contas a pagar — fretes">
+        <Table
+          columns={[
+            { key: "data", label: "Data" },
+            { key: "destino", label: "Destino" },
+            { key: "valorFrete", label: "Valor", render: (r) => brl(r.valorFrete) },
+            { key: "statusPagamento", label: "Status", render: (r) => <StatusSelect status={r.statusPagamento} onChange={(v) => atualizarStatusFrete(r.id, v)} /> },
+          ]}
+          rows={fretes}
+          emptyText="Nenhum frete lançado ainda."
         />
       </Card>
     </div>
@@ -1191,24 +1670,40 @@ function Contabilidade({ db, filialId }) {
   const compras = db.compras.filter((c) => c.filialId === filialId);
   const fretes = db.fretes.filter((f) => f.filialId === filialId);
   const produtos = db.produtos.filter((p) => p.filialId === filialId);
+  const avulsas = db.contasAvulsas.filter((a) => a.filialId === filialId);
+  const centrosCusto = db.centrosCusto.filter((c) => c.filialId === filialId);
+  const aberto = (s) => s !== "pago" && s !== "cancelado";
 
   const receitaBruta = vendas.reduce((s, v) => s + Number(v.total || 0), 0);
-  const comissoes = vendas.reduce((s, v) => s + Number(v.comissaoValor || 0), 0);
+  const comissoes = vendas.reduce((s, v) => s + Number(v.comissaoValor || 0) + Number(v.comissaoGerenteValor || 0), 0);
   const custoInsumos = compras.filter((c) => c.categoria === "insumo").reduce((s, c) => s + Number(c.valor || 0), 0);
   const despesasAdm = compras.filter((c) => c.categoria === "administrativo").reduce((s, c) => s + Number(c.valor || 0), 0);
   const manutencao = compras.filter((c) => c.categoria === "manutencao").reduce((s, c) => s + Number(c.valor || 0), 0);
   const outrasCompras = compras.filter((c) => !["insumo", "administrativo", "manutencao"].includes(c.categoria)).reduce((s, c) => s + Number(c.valor || 0), 0);
   const despesasFrete = fretes.reduce((s, f) => s + Number(f.valorFrete || 0), 0);
+  const receitasAvulsas = avulsas.filter((a) => a.tipo === "receber").reduce((s, a) => s + Number(a.valor || 0), 0);
+  const despesasAvulsas = avulsas.filter((a) => a.tipo === "pagar").reduce((s, a) => s + Number(a.valor || 0), 0);
 
-  const totalDespesas = comissoes + custoInsumos + despesasAdm + manutencao + outrasCompras + despesasFrete;
-  const resultadoLiquido = receitaBruta - totalDespesas;
+  const totalReceitas = receitaBruta + receitasAvulsas;
+  const totalDespesas = comissoes + custoInsumos + despesasAdm + manutencao + outrasCompras + despesasFrete + despesasAvulsas;
+  const resultadoLiquido = totalReceitas - totalDespesas;
 
-  const caixa = receitaBruta - totalDespesas; // simplificado: regime de caixa acumulado
-  const contasReceber = vendas.filter((v) => v.statusPagamento !== "pago").reduce((s, v) => s + Number(v.total || 0), 0);
+  const caixa = totalReceitas - totalDespesas; // simplificado: regime de caixa acumulado
+  const contasReceber = vendas.flatMap((v) => v.parcelas || []).filter((p) => aberto(p.status)).reduce((s, p) => s + Number(p.valor || 0), 0)
+    + avulsas.filter((a) => a.tipo === "receber" && aberto(a.status)).reduce((s, a) => s + Number(a.valor || 0), 0);
   const estoqueValor = produtos.reduce((s, p) => s + Number(p.custoUnit || 0) * 0, 0); // sem contagem física neste protótipo
   const ativoTotal = caixa + contasReceber + estoqueValor;
-  const contasPagar = compras.filter((c) => c.statusPagamento !== "pago").reduce((s, c) => s + Number(c.valor || 0), 0) + fretes.filter((f) => f.statusPagamento !== "pago").reduce((s, f) => s + Number(f.valorFrete || 0), 0);
+  const contasPagar = compras.flatMap((c) => c.parcelas || []).filter((p) => aberto(p.status)).reduce((s, p) => s + Number(p.valor || 0), 0)
+    + fretes.filter((f) => aberto(f.statusPagamento)).reduce((s, f) => s + Number(f.valorFrete || 0), 0)
+    + avulsas.filter((a) => a.tipo === "pagar" && aberto(a.status)).reduce((s, a) => s + Number(a.valor || 0), 0);
   const patrimonioLiquido = ativoTotal - contasPagar;
+
+  const resultadoPorCentro = centrosCusto.map((cc) => {
+    const rec = vendas.filter((v) => v.centroCustoId === cc.id).reduce((s, v) => s + Number(v.total || 0), 0);
+    const desp = compras.filter((c) => c.centroCustoId === cc.id).reduce((s, c) => s + Number(c.valor || 0), 0)
+      + avulsas.filter((a) => a.centroCustoId === cc.id).reduce((s, a) => s + (a.tipo === "pagar" ? Number(a.valor || 0) : -Number(a.valor || 0)), 0);
+    return { ...cc, receita: rec, despesa: desp, resultado: rec - desp };
+  });
 
   const linha = (label, valor, bold, indent) => (
     <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: `1px solid ${BORDER}`, fontWeight: bold ? 800 : 500, paddingLeft: indent ? 16 : 0, color: bold ? GREEN : INK, fontSize: bold ? 14 : 13 }}>
@@ -1219,31 +1714,46 @@ function Contabilidade({ db, filialId }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <div style={{ background: "#FBF3DC", border: `1px solid ${GOLD_LIGHT}`, borderRadius: 10, padding: "10px 14px", fontSize: 12.5, color: "#6B5410" }}>
-        Demonstrações calculadas automaticamente a partir dos lançamentos de Vendas, Compras e Logística desta filial — regime de caixa simplificado, para fins gerenciais. Não substitui a escrituração contábil oficial.
+        Demonstrações calculadas automaticamente a partir dos lançamentos de Vendas, Compras, Logística e Contas Avulsas desta filial — regime de caixa simplificado, para fins gerenciais. Não substitui a escrituração contábil oficial.
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
         <Card title="DRE — Demonstrativo de Resultado">
           {linha("Receita bruta de vendas", receitaBruta)}
-          {linha("(-) Comissões sobre vendas", -comissoes, false, true)}
+          {linha("(+) Receitas avulsas", receitasAvulsas, false, true)}
+          {linha("(-) Comissões (vendedor + gerente)", -comissoes, false, true)}
           {linha("(-) Insumos e ração", -custoInsumos, false, true)}
           {linha("(-) Despesas administrativas", -despesasAdm, false, true)}
           {linha("(-) Manutenção", -manutencao, false, true)}
           {linha("(-) Fretes e logística", -despesasFrete, false, true)}
-          {linha("(-) Outras despesas", -outrasCompras, false, true)}
+          {linha("(-) Outras despesas de compra", -outrasCompras, false, true)}
+          {linha("(-) Despesas avulsas", -despesasAvulsas, false, true)}
           <div style={{ marginTop: 8 }}>{linha("Resultado líquido do período", resultadoLiquido, true)}</div>
         </Card>
         <Card title="Balanço Patrimonial (simplificado)">
           <div style={{ fontSize: 12.5, fontWeight: 800, color: MUTED, marginTop: 4 }}>ATIVO</div>
           {linha("Caixa (acumulado)", caixa, false, true)}
-          {linha("Contas a receber", contasReceber, false, true)}
+          {linha("Contas a receber (parcelas em aberto)", contasReceber, false, true)}
           {linha("Estoques", estoqueValor, false, true)}
           {linha("Total do ativo", ativoTotal, true)}
           <div style={{ fontSize: 12.5, fontWeight: 800, color: MUTED, marginTop: 14 }}>PASSIVO + PATRIMÔNIO LÍQUIDO</div>
-          {linha("Contas a pagar", contasPagar, false, true)}
+          {linha("Contas a pagar (parcelas em aberto)", contasPagar, false, true)}
           {linha("Patrimônio líquido", patrimonioLiquido, false, true)}
           {linha("Total passivo + PL", contasPagar + patrimonioLiquido, true)}
         </Card>
       </div>
+      {!!resultadoPorCentro.length && (
+        <Card title="Resultado por Centro de Custo">
+          <Table
+            columns={[
+              { key: "nome", label: "Centro de custo" },
+              { key: "receita", label: "Receita", render: (r) => brl(r.receita) },
+              { key: "despesa", label: "Despesa", render: (r) => brl(r.despesa) },
+              { key: "resultado", label: "Resultado", render: (r) => brl(r.resultado) },
+            ]}
+            rows={resultadoPorCentro}
+          />
+        </Card>
+      )}
     </div>
   );
 }
@@ -1262,8 +1772,8 @@ function Logistica({ db, update, filialId }) {
     setForm({ data: todayISO(), motoristaId: "", veiculoId: "", destino: "", valorFrete: "" });
   }
 
-  function marcarPago(f) {
-    update((prev) => ({ ...prev, fretes: prev.fretes.map((x) => (x.id === f.id ? { ...x, statusPagamento: x.statusPagamento === "pago" ? "pendente" : "pago" } : x)) }));
+  function atualizarStatus(f, status) {
+    update((prev) => ({ ...prev, fretes: prev.fretes.map((x) => (x.id === f.id ? { ...x, statusPagamento: status } : x)) }));
   }
 
   const nomeMotorista = (id) => motoristas.find((m) => m.id === id)?.nome || "—";
@@ -1295,7 +1805,7 @@ function Logistica({ db, update, filialId }) {
             { key: "veiculoId", label: "Veículo", render: (r) => nomeVeiculo(r.veiculoId) },
             { key: "destino", label: "Destino" },
             { key: "valorFrete", label: "Valor", render: (r) => brl(r.valorFrete) },
-            { key: "statusPagamento", label: "Pagamento", render: (r) => <button onClick={() => marcarPago(r)} style={{ border: "none", background: "none", cursor: "pointer" }}><StatusPill status={r.statusPagamento} /></button> },
+            { key: "statusPagamento", label: "Pagamento", render: (r) => <StatusSelect status={r.statusPagamento} onChange={(v) => atualizarStatus(r, v)} /> },
           ]}
           rows={[...fretes].sort((a, b) => (a.data < b.data ? 1 : -1))}
         />
@@ -1306,25 +1816,62 @@ function Logistica({ db, update, filialId }) {
 
 /* ---------------- Fiscal (NFe / SPED) — módulo ilustrativo ---------------- */
 
-function Fiscal({ db, filialId }) {
+function Fiscal({ db, update, filialId }) {
   const vendas = db.vendas.filter((v) => v.filialId === filialId);
+  const emitidas = vendas.filter((v) => v.nfe && v.nfe.status === "autorizada");
+  const canceladas = vendas.filter((v) => v.nfe && v.nfe.status === "cancelada");
+  const naoEmitidas = vendas.filter((v) => !v.nfe);
+
+  function emitirNFe(venda) {
+    update((prev) => ({ ...prev, vendas: prev.vendas.map((v) => (v.id !== venda.id ? v : { ...v, nfe: { status: "autorizada", chave: gerarChaveAcessoFake(), protocolo: gerarProtocoloFake(), dataEmissao: todayISO(), ambiente: "homologacao" } })) }));
+  }
+  function cancelarNFe(venda) {
+    const justificativa = window.prompt("Justificativa do cancelamento (mínimo 15 caracteres):");
+    if (!justificativa || justificativa.trim().length < 15) { alert("Cancelamento não realizado: informe uma justificativa com pelo menos 15 caracteres."); return; }
+    update((prev) => ({ ...prev, vendas: prev.vendas.map((v) => (v.id !== venda.id ? v : { ...v, nfe: { ...v.nfe, status: "cancelada", dataCancelamento: todayISO(), justificativaCancelamento: justificativa } })) }));
+  }
+  function consultarNFe(venda) {
+    alert(`Consulta simulada — ambiente de HOMOLOGAÇÃO, sem conexão real com a SEFAZ.\n\nStatus: ${venda.nfe.status}\nChave de acesso: ${venda.nfe.chave}\nProtocolo: ${venda.nfe.protocolo}`);
+  }
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      <div style={{ background: "#FBEAE4", border: `1px solid ${DANGER}55`, borderRadius: 10, padding: "12px 14px", fontSize: 12.5, color: "#7A2E1B" }}>
-        <b>Importante:</b> este módulo mostra a estrutura de dados e o layout dos documentos, mas não emite NF-e nem SPED de verdade — isso exige certificado digital (A1/A3), contrato com a SEFAZ e homologação do ambiente, feitos por um provedor fiscal certificado. Trate os arquivos abaixo como pré-visualização, não como documento fiscal válido.
+      <div style={{ background: GOLD, color: GREEN_DARK, borderRadius: 10, padding: "10px 14px", fontSize: 12.5, fontWeight: 800, textAlign: "center" }}>
+        AMBIENTE DE HOMOLOGAÇÃO — nenhuma nota fiscal aqui é transmitida à SEFAZ de verdade
       </div>
-      <Card title="Notas fiscais (pré-visualização)" subtitle="Uma linha por venda lançada — o layout real da NF-e é um XML assinado digitalmente, muito mais extenso.">
+      <div style={{ background: "#FBEAE4", border: `1px solid ${DANGER}55`, borderRadius: 10, padding: "12px 14px", fontSize: 12.5, color: "#7A2E1B" }}>
+        <b>Importante:</b> a emissão real de NF-e exige certificado digital (A1/A3), credenciamento junto à SEFAZ do seu estado e um provedor fiscal homologado. Este módulo simula os status (chave de acesso, protocolo, autorização e cancelamento) para você validar o fluxo do sistema — quando for para produção, essa camada precisa ser trocada por uma integração real.
+      </div>
+
+      <div style={{ display: "flex", gap: 14 }}>
+        <StatCard label="Autorizadas (homolog.)" value={emitidas.length} accent={SUCCESS} />
+        <StatCard label="Canceladas" value={canceladas.length} accent={DANGER} />
+        <StatCard label="Aguardando emissão" value={naoEmitidas.length} accent={GOLD} />
+      </div>
+
+      <Card title="Notas fiscais por venda" subtitle="Emita, cancele ou consulte o status simulado de cada venda.">
         <Table
           columns={[
             { key: "data", label: "Data" },
-            { key: "total", label: "Valor" , render: (r) => brl(r.total) },
-            { key: "status", label: "Status", render: () => <span style={{ fontSize: 11, color: MUTED }}>rascunho — não transmitida</span> },
+            { key: "total", label: "Valor", render: (r) => brl(r.total) },
+            { key: "chave", label: "Chave de acesso", render: (r) => r.nfe ? <span style={{ fontFamily: "monospace", fontSize: 10.5 }}>{r.nfe.chave}</span> : "—" },
+            { key: "status", label: "Status", render: (r) => r.nfe ? <StatusBadge status={r.nfe.status === "autorizada" ? "pago" : "cancelado"} /> : <span style={{ fontSize: 11, color: MUTED }}>Não emitida</span> },
+            {
+              key: "acoes", label: "Ações", render: (r) => (
+                <div style={{ display: "flex", gap: 8 }}>
+                  {!r.nfe && <button onClick={() => emitirNFe(r)} style={linkBtnStyle(GREEN)}>emitir</button>}
+                  {r.nfe && r.nfe.status !== "cancelada" && <button onClick={() => cancelarNFe(r)} style={linkBtnStyle(DANGER)}>cancelar</button>}
+                  {r.nfe && <button onClick={() => consultarNFe(r)} style={linkBtnStyle(MUTED)}>consultar status</button>}
+                </div>
+              ),
+            },
           ]}
-          rows={vendas}
-          emptyText="Nenhuma venda para gerar nota fiscal."
+          rows={[...vendas].sort((a, b) => (a.data < b.data ? 1 : -1))}
+          emptyText="Nenhuma venda lançada ainda."
         />
       </Card>
-      <Card title="SPED Fiscal / Contábil" subtitle="Blocos ilustrativos com base nos lançamentos desta filial.">
+
+      <Card title="SPED Fiscal / Contábil" subtitle="Blocos ilustrativos com base nos lançamentos desta filial — não é um arquivo válido para entrega à Receita.">
         <div style={{ fontFamily: "monospace", fontSize: 11.5, background: GREEN_DARK, color: "#D7E3DC", padding: 14, borderRadius: 8, overflowX: "auto", whiteSpace: "pre" }}>
 {`|0000|... (abertura do arquivo — dados da empresa) |
 |C100|...  (${vendas.length} registro(s) de saída/venda)
