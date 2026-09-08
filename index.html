@@ -165,6 +165,98 @@ function gerarProtocoloFake() {
   return "1" + Math.floor(100000000000 + Math.random() * 899999999999).toString();
 }
 
+/* -------- SPED Fiscal (EFD ICMS/IPI) — arquivo ilustrativo, ambiente de homologação -------- */
+function gerarSpedFiscal(db, filialId, empresa) {
+  const vendas = db.vendas.filter((v) => v.filialId === filialId);
+  const produtos = db.produtos.filter((p) => p.filialId === filialId);
+  const clientes = db.clientes.filter((c) => c.filialId === filialId);
+  const fornecedores = db.fornecedores.filter((f) => f.filialId === filialId);
+  const fmt = (iso) => (iso || todayISO()).split("-").reverse().join("");
+  const hoje = fmt(todayISO());
+
+  const lines = [];
+  const add = (reg, fields) => lines.push("|" + [reg, ...fields].join("|") + "|");
+  const closeBlock = (reg, startIdx) => add(reg, [String(lines.length - startIdx + 1)]);
+
+  add("0000", ["014", "0", hoje, hoje, (empresa?.nome || "EMPRESA").toUpperCase(), (empresa?.cnpj || "").replace(/\D/g, ""), "", "SP", "", "", "A", "1"]);
+  add("0001", ["0"]);
+  add("0005", [(empresa?.nome || "").toUpperCase(), "", "", "", empresa?.telefone || "", "", ""]);
+  [...clientes, ...fornecedores].forEach((p, i) => add("0150", [String(i + 1), (p.razaoSocial || "").toUpperCase(), "", (p.cpfCnpj || "").replace(/\D/g, ""), p.inscricaoEstadual || "", p.endereco || "", p.numero || "", p.bairro || "", "", p.cidade || "", p.uf || ""]));
+  produtos.forEach((p) => add("0200", [(p.id || "").slice(0, 8).toUpperCase(), (p.nome || "").toUpperCase(), "", "", "", (p.unidade || "UN").toUpperCase(), "", "", "", "00"]));
+
+  let start = lines.length;
+  add("C001", ["0"]);
+  vendas.filter((v) => v.nfe && v.nfe.status === "autorizada").forEach((v) => {
+    add("C100", ["1", "0", "55", "00", (v.id || "").slice(0, 6).toUpperCase(), "1", fmt(v.data), fmt(v.data), Number(v.total || 0).toFixed(2), "0", "0.00", "0.00", "0.00", Number(v.total || 0).toFixed(2)]);
+    (v.itens || []).forEach((it, idx) => {
+      const p = produtos.find((x) => x.id === it.produtoId);
+      add("C170", [String(idx + 1), p ? p.id.slice(0, 8).toUpperCase() : "PROD", Number(it.qtd || 0).toFixed(2), (p?.unidade || "UN").toUpperCase(), (Number(it.qtd || 0) * Number(it.precoUnit || 0)).toFixed(2), p?.cfop || "5102", "0", "0.00"]);
+    });
+  });
+  closeBlock("C990", start);
+
+  start = lines.length;
+  add("E001", ["0"]);
+  const totalVendas = vendas.reduce((s, v) => s + Number(v.total || 0), 0);
+  add("E110", [totalVendas.toFixed(2), "0.00", "0.00", "0.00", "0.00", "0.00", "0.00", "0.00", "0.00", "0.00", "0.00"]);
+  closeBlock("E990", start);
+
+  start = lines.length;
+  add("9001", ["0"]);
+  ["0000", "0001", "0005", "0150", "0200", "C001", "C100", "C170", "C990", "E001", "E110", "E990"].forEach((reg) => {
+    const n = lines.filter((l) => l.startsWith("|" + reg + "|")).length;
+    if (n > 0) add("9900", [reg, String(n)]);
+  });
+  closeBlock("9990", start);
+  add("9999", [String(lines.length + 1)]);
+
+  return lines.join("\r\n");
+}
+
+/* -------- SPED Contábil / ECD — arquivo ilustrativo, ambiente de homologação -------- */
+function gerarSpedContabil(db, filialId, empresa) {
+  const vendas = db.vendas.filter((v) => v.filialId === filialId);
+  const compras = db.compras.filter((c) => c.filialId === filialId);
+  const fretes = db.fretes.filter((f) => f.filialId === filialId);
+  const avulsas = db.contasAvulsas.filter((a) => a.filialId === filialId);
+  const receitaBruta = vendas.reduce((s, v) => s + Number(v.total || 0), 0);
+  const despesas = compras.reduce((s, c) => s + Number(c.valor || 0), 0)
+    + fretes.reduce((s, f) => s + Number(f.valorFrete || 0), 0)
+    + avulsas.filter((a) => a.tipo === "pagar").reduce((s, a) => s + Number(a.valor || 0), 0);
+  const resultado = receitaBruta - despesas;
+  const fmt = (iso) => (iso || todayISO()).split("-").reverse().join("");
+  const hoje = fmt(todayISO());
+
+  const lines = [];
+  const add = (reg, fields) => lines.push("|" + [reg, ...fields].join("|") + "|");
+  const closeBlock = (reg, startIdx) => add(reg, [String(lines.length - startIdx + 1)]);
+
+  add("0000", ["LECD", hoje, hoje, (empresa?.nome || "EMPRESA").toUpperCase(), (empresa?.cnpj || "").replace(/\D/g, ""), "", "SP", "0", "N", "0"]);
+  add("0001", ["0"]);
+  add("0007", ["", "", "", "", ""]);
+  add("0020", ["G", ""]);
+
+  let start = lines.length;
+  add("I001", ["0"]);
+  add("I010", ["G", "1.00"]);
+  add("I050", ["3.01.01", "S", "A", "1", "RECEITA DE VENDAS", ""]);
+  add("I050", ["4.01.01", "S", "D", "1", "CUSTOS E DESPESAS", ""]);
+  add("I150", [hoje, hoje]);
+  add("I155", ["3.01.01", receitaBruta.toFixed(2), "0.00", "0.00", receitaBruta.toFixed(2)]);
+  add("I155", ["4.01.01", "0.00", despesas.toFixed(2), despesas.toFixed(2), "0.00"]);
+  add("I355", ["3.01.01", "RECEITA DE VENDAS", receitaBruta.toFixed(2)]);
+  add("I355", ["4.01.01", "CUSTOS E DESPESAS", despesas.toFixed(2)]);
+  add("I355", ["RESULTADO", "RESULTADO LIQUIDO DO PERIODO", resultado.toFixed(2)]);
+  closeBlock("I990", start);
+
+  start = lines.length;
+  add("J001", ["0"]);
+  add("J990", [String(lines.length - start + 1)]);
+
+  add("9999", [String(lines.length + 1)]);
+  return lines.join("\r\n");
+}
+
 function uid() {
   return Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
 }
@@ -339,6 +431,112 @@ function Table({ columns, rows, onEdit, onDelete, emptyText }) {
           ))}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+/* -------- Modal genérico -------- */
+function Modal({ title, onClose, children, wide }) {
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(15,42,29,0.55)", display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "5vh 20px", zIndex: 100, overflowY: "auto" }} onClick={onClose}>
+      <div style={{ background: CARD, borderRadius: 12, width: wide ? 780 : 520, maxWidth: "100%", padding: 0, boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }} onClick={(e) => e.stopPropagation()}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 20px", borderBottom: `1px solid ${BORDER}` }}>
+          <div style={{ fontSize: 14, fontWeight: 800, color: GREEN }}>{title}</div>
+          <button onClick={onClose} style={{ border: "none", background: "none", fontSize: 18, cursor: "pointer", color: MUTED, lineHeight: 1 }}>×</button>
+        </div>
+        <div style={{ padding: 20, maxHeight: "78vh", overflowY: "auto" }}>{children}</div>
+      </div>
+    </div>
+  );
+}
+
+function downloadTextFile(filename, content) {
+  const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function formatChave(chave) {
+  if (!chave) return "";
+  return (chave.match(/.{1,4}/g) || []).join(" ");
+}
+
+/* -------- DANFE (representação visual, ambiente de homologação) -------- */
+function Danfe({ venda, empresa, filial, cliente, produtos }) {
+  if (!venda.nfe) return null;
+  const cancelada = venda.nfe.status === "cancelada";
+  return (
+    <div style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", color: "#111", border: "1.5px solid #111", position: "relative" }}>
+      <div style={{ textAlign: "center", background: DANGER, color: "#fff", fontWeight: 800, fontSize: 13, padding: "6px 0", letterSpacing: 0.5 }}>
+        SEM VALOR FISCAL — AMBIENTE DE HOMOLOGAÇÃO{cancelada ? " · NF-e CANCELADA" : ""}
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 2fr", borderBottom: "1px solid #111" }}>
+        <div style={{ padding: 10, borderRight: "1px solid #111" }}>
+          <div style={{ fontWeight: 800, fontSize: 14 }}>{empresa?.nome || "—"}</div>
+          <div style={{ fontSize: 10.5 }}>{filial?.endereco || empresa?.endereco || "—"}</div>
+          <div style={{ fontSize: 10.5 }}>CNPJ: {empresa?.cnpj || "—"}</div>
+        </div>
+        <div style={{ padding: 10, borderRight: "1px solid #111", textAlign: "center" }}>
+          <div style={{ fontSize: 20, fontWeight: 800 }}>DANFE</div>
+          <div style={{ fontSize: 8.5, marginTop: 2 }}>Documento Auxiliar da<br />Nota Fiscal Eletrônica</div>
+          <div style={{ fontSize: 9, marginTop: 6 }}>0 - Entrada &nbsp;&nbsp; 1 - Saída</div>
+          <div style={{ display: "inline-block", border: "1px solid #111", borderRadius: 4, width: 20, height: 20, marginTop: 2, fontWeight: 800, lineHeight: "20px" }}>1</div>
+          <div style={{ fontSize: 9, marginTop: 4 }}>Nº {venda.id.slice(0, 6).toUpperCase()} &nbsp; Série 1</div>
+        </div>
+        <div style={{ padding: 10 }}>
+          <div style={{ fontSize: 9, fontWeight: 700 }}>CHAVE DE ACESSO</div>
+          <div style={{ fontFamily: "monospace", fontSize: 10.5, wordBreak: "break-all", marginTop: 3 }}>{formatChave(venda.nfe.chave)}</div>
+          <div style={{ fontSize: 8.5, marginTop: 4 }}>Consulta simulada — ambiente de homologação, sem validade na SEFAZ real.</div>
+        </div>
+      </div>
+      <div style={{ padding: "6px 10px", borderBottom: "1px solid #111", fontSize: 9.5 }}>
+        <b>PROTOCOLO DE AUTORIZAÇÃO DE USO:</b> {venda.nfe.protocolo} — {venda.nfe.dataEmissao ? venda.nfe.dataEmissao.split("-").reverse().join("/") : ""} (homologação)
+        {cancelada && <div style={{ color: DANGER, fontWeight: 700, marginTop: 3 }}>CANCELADA EM {venda.nfe.dataCancelamento?.split("-").reverse().join("/")} — {venda.nfe.justificativaCancelamento}</div>}
+      </div>
+      <div style={{ padding: "6px 10px", borderBottom: "1px solid #111", fontSize: 9.5 }}>
+        <b>NATUREZA DA OPERAÇÃO:</b> Venda de mercadoria adquirida ou produzida pelo estabelecimento
+      </div>
+      <div style={{ padding: "8px 10px", borderBottom: "1px solid #111" }}>
+        <div style={{ fontSize: 9, fontWeight: 700, marginBottom: 3 }}>DESTINATÁRIO / REMETENTE</div>
+        <div style={{ fontSize: 11, fontWeight: 700 }}>{cliente?.razaoSocial || "Consumidor não identificado"}</div>
+        <div style={{ fontSize: 9.5 }}>CPF/CNPJ: {cliente?.cpfCnpj || "—"} &nbsp;&nbsp; IE: {cliente?.inscricaoEstadual || "—"}</div>
+        <div style={{ fontSize: 9.5 }}>{[cliente?.endereco, cliente?.numero, cliente?.bairro].filter(Boolean).join(", ") || "—"} — {[cliente?.cidade, cliente?.uf].filter(Boolean).join("/")}</div>
+      </div>
+      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 9 }}>
+        <thead>
+          <tr style={{ background: "#eee" }}>
+            {["Cód.", "Descrição", "NCM", "CFOP", "Unid.", "Qtd.", "Vlr. unit.", "Vlr. total"].map((h) => (
+              <th key={h} style={{ border: "1px solid #111", padding: "3px 5px", textAlign: "left" }}>{h}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {venda.itens.map((it, i) => {
+            const p = produtos.find((x) => x.id === it.produtoId);
+            return (
+              <tr key={i}>
+                <td style={{ border: "1px solid #111", padding: "3px 5px" }}>{p?.id?.slice(0, 6) || "—"}</td>
+                <td style={{ border: "1px solid #111", padding: "3px 5px" }}>{p?.nome || "—"}</td>
+                <td style={{ border: "1px solid #111", padding: "3px 5px" }}>—</td>
+                <td style={{ border: "1px solid #111", padding: "3px 5px" }}>{p?.cfop || "—"}</td>
+                <td style={{ border: "1px solid #111", padding: "3px 5px" }}>{p?.unidade || "—"}</td>
+                <td style={{ border: "1px solid #111", padding: "3px 5px" }}>{it.qtd}</td>
+                <td style={{ border: "1px solid #111", padding: "3px 5px" }}>{brl(it.precoUnit)}</td>
+                <td style={{ border: "1px solid #111", padding: "3px 5px" }}>{brl(it.qtd * it.precoUnit)}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      <div style={{ display: "flex", justifyContent: "flex-end", padding: "8px 10px", fontSize: 11, fontWeight: 800 }}>
+        VALOR TOTAL DA NOTA: {brl(venda.total)}
+      </div>
+      <div style={{ textAlign: "center", fontSize: 8.5, color: "#555", padding: "6px 10px", borderTop: "1px solid #111" }}>
+        Documento gerado pelo AVISOFT em ambiente de homologação — não substitui a DANFE oficial emitida após autorização real da SEFAZ.
+      </div>
     </div>
   );
 }
@@ -1092,6 +1290,9 @@ function Vendas({ db, update, filialId }) {
   const clientes = db.clientes.filter((c) => c.filialId === filialId);
   const centrosCusto = db.centrosCusto.filter((c) => c.filialId === filialId);
   const vendas = db.vendas.filter((v) => v.filialId === filialId);
+  const empresa = db.empresas.find((e) => e.filiais.some((f) => f.id === filialId));
+  const filial = empresa?.filiais.find((f) => f.id === filialId);
+  const [danfeVenda, setDanfeVenda] = useState(null);
 
   const [form, setForm] = useState({ data: todayISO(), clienteId: "", vendedorId: "", produtoId: "", qtd: "", precoUnit: "", condicaoPagamento: "vista_pix", centroCustoId: "" });
 
@@ -1222,6 +1423,7 @@ function Vendas({ db, update, filialId }) {
                     {!r.nfe && <button onClick={() => emitirNFe(r)} style={linkBtnStyle(GREEN)}>emitir</button>}
                     {r.nfe && r.nfe.status !== "cancelada" && <button onClick={() => cancelarNFe(r)} style={linkBtnStyle(DANGER)}>cancelar</button>}
                     {r.nfe && <button onClick={() => consultarNFe(r)} style={linkBtnStyle(MUTED)}>consultar</button>}
+                    {r.nfe && <button onClick={() => setDanfeVenda(r)} style={linkBtnStyle(GOLD)}>ver DANFE</button>}
                   </div>
                 </div>
               ),
@@ -1230,6 +1432,16 @@ function Vendas({ db, update, filialId }) {
           rows={[...vendas].sort((a, b) => (a.data < b.data ? 1 : -1))}
         />
       </Card>
+
+      {danfeVenda && (
+        <Modal title="DANFE — Ambiente de Homologação" onClose={() => setDanfeVenda(null)} wide>
+          <Danfe venda={danfeVenda} empresa={empresa} filial={filial} cliente={clientes.find((c) => c.id === danfeVenda.clienteId)} produtos={produtos} />
+          <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+            <Button onClick={() => window.print()}>Imprimir / Salvar como PDF</Button>
+            <Button variant="ghost" onClick={() => setDanfeVenda(null)}>Fechar</Button>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }
@@ -1821,6 +2033,12 @@ function Fiscal({ db, update, filialId }) {
   const emitidas = vendas.filter((v) => v.nfe && v.nfe.status === "autorizada");
   const canceladas = vendas.filter((v) => v.nfe && v.nfe.status === "cancelada");
   const naoEmitidas = vendas.filter((v) => !v.nfe);
+  const produtos = db.produtos.filter((p) => p.filialId === filialId);
+  const clientes = db.clientes.filter((c) => c.filialId === filialId);
+  const empresa = db.empresas.find((e) => e.filiais.some((f) => f.id === filialId));
+  const filial = empresa?.filiais.find((f) => f.id === filialId);
+  const [danfeVenda, setDanfeVenda] = useState(null);
+  const [spedPreview, setSpedPreview] = useState(null); // { tipo, conteudo }
 
   function emitirNFe(venda) {
     update((prev) => ({ ...prev, vendas: prev.vendas.map((v) => (v.id !== venda.id ? v : { ...v, nfe: { status: "autorizada", chave: gerarChaveAcessoFake(), protocolo: gerarProtocoloFake(), dataEmissao: todayISO(), ambiente: "homologacao" } })) }));
@@ -1834,13 +2052,20 @@ function Fiscal({ db, update, filialId }) {
     alert(`Consulta simulada — ambiente de HOMOLOGAÇÃO, sem conexão real com a SEFAZ.\n\nStatus: ${venda.nfe.status}\nChave de acesso: ${venda.nfe.chave}\nProtocolo: ${venda.nfe.protocolo}`);
   }
 
+  function verSpedFiscal() {
+    setSpedPreview({ tipo: "SPED Fiscal (EFD ICMS/IPI)", conteudo: gerarSpedFiscal(db, filialId, empresa), nomeArquivo: `SPED_FISCAL_HOMOLOGACAO_${filialId.slice(0, 6)}.txt` });
+  }
+  function verSpedContabil() {
+    setSpedPreview({ tipo: "SPED Contábil (ECD)", conteudo: gerarSpedContabil(db, filialId, empresa), nomeArquivo: `SPED_CONTABIL_HOMOLOGACAO_${filialId.slice(0, 6)}.txt` });
+  }
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <div style={{ background: GOLD, color: GREEN_DARK, borderRadius: 10, padding: "10px 14px", fontSize: 12.5, fontWeight: 800, textAlign: "center" }}>
-        AMBIENTE DE HOMOLOGAÇÃO — nenhuma nota fiscal aqui é transmitida à SEFAZ de verdade
+        AMBIENTE DE HOMOLOGAÇÃO — nenhuma nota fiscal ou arquivo SPED aqui é transmitido à Receita/SEFAZ de verdade
       </div>
       <div style={{ background: "#FBEAE4", border: `1px solid ${DANGER}55`, borderRadius: 10, padding: "12px 14px", fontSize: 12.5, color: "#7A2E1B" }}>
-        <b>Importante:</b> a emissão real de NF-e exige certificado digital (A1/A3), credenciamento junto à SEFAZ do seu estado e um provedor fiscal homologado. Este módulo simula os status (chave de acesso, protocolo, autorização e cancelamento) para você validar o fluxo do sistema — quando for para produção, essa camada precisa ser trocada por uma integração real.
+        <b>Importante:</b> a emissão real de NF-e e a entrega válida de SPED exigem certificado digital (A1/A3), credenciamento junto à SEFAZ/Receita e, no caso do SPED, assinatura digital do arquivo. O que este módulo gera são arquivos com a <b>estrutura de blocos e layout reais</b> (registros |0000|, |C100|, |I050| etc.), preenchidos com os seus lançamentos, para você validar o fluxo — não são arquivos assinados nem válidos para entrega oficial.
       </div>
 
       <div style={{ display: "flex", gap: 14 }}>
@@ -1849,7 +2074,7 @@ function Fiscal({ db, update, filialId }) {
         <StatCard label="Aguardando emissão" value={naoEmitidas.length} accent={GOLD} />
       </div>
 
-      <Card title="Notas fiscais por venda" subtitle="Emita, cancele ou consulte o status simulado de cada venda.">
+      <Card title="Notas fiscais por venda" subtitle="Emita, cancele, consulte o status simulado, ou visualize o DANFE de cada venda.">
         <Table
           columns={[
             { key: "data", label: "Data" },
@@ -1858,10 +2083,11 @@ function Fiscal({ db, update, filialId }) {
             { key: "status", label: "Status", render: (r) => r.nfe ? <StatusBadge status={r.nfe.status === "autorizada" ? "pago" : "cancelado"} /> : <span style={{ fontSize: 11, color: MUTED }}>Não emitida</span> },
             {
               key: "acoes", label: "Ações", render: (r) => (
-                <div style={{ display: "flex", gap: 8 }}>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                   {!r.nfe && <button onClick={() => emitirNFe(r)} style={linkBtnStyle(GREEN)}>emitir</button>}
                   {r.nfe && r.nfe.status !== "cancelada" && <button onClick={() => cancelarNFe(r)} style={linkBtnStyle(DANGER)}>cancelar</button>}
                   {r.nfe && <button onClick={() => consultarNFe(r)} style={linkBtnStyle(MUTED)}>consultar status</button>}
+                  {r.nfe && <button onClick={() => setDanfeVenda(r)} style={linkBtnStyle(GOLD)}>ver DANFE</button>}
                 </div>
               ),
             },
@@ -1871,14 +2097,35 @@ function Fiscal({ db, update, filialId }) {
         />
       </Card>
 
-      <Card title="SPED Fiscal / Contábil" subtitle="Blocos ilustrativos com base nos lançamentos desta filial — não é um arquivo válido para entrega à Receita.">
-        <div style={{ fontFamily: "monospace", fontSize: 11.5, background: GREEN_DARK, color: "#D7E3DC", padding: 14, borderRadius: 8, overflowX: "auto", whiteSpace: "pre" }}>
-{`|0000|... (abertura do arquivo — dados da empresa) |
-|C100|...  (${vendas.length} registro(s) de saída/venda)
-|E110|...  (apuração de ICMS — requer parametrização fiscal real)
-|9999|... (encerramento do arquivo)`}
+      <Card title="SPED Fiscal / Contábil" subtitle="Gera o arquivo com o layout real de blocos, preenchido com os lançamentos desta filial — ambiente de homologação.">
+        <div style={{ display: "flex", gap: 10 }}>
+          <Button onClick={verSpedFiscal}>Gerar SPED Fiscal (homologação)</Button>
+          <Button onClick={verSpedContabil}>Gerar SPED Contábil (homologação)</Button>
         </div>
       </Card>
+
+      {danfeVenda && (
+        <Modal title="DANFE — Ambiente de Homologação" onClose={() => setDanfeVenda(null)} wide>
+          <Danfe venda={danfeVenda} empresa={empresa} filial={filial} cliente={clientes.find((c) => c.id === danfeVenda.clienteId)} produtos={produtos} />
+          <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+            <Button onClick={() => window.print()}>Imprimir / Salvar como PDF</Button>
+            <Button variant="ghost" onClick={() => setDanfeVenda(null)}>Fechar</Button>
+          </div>
+        </Modal>
+      )}
+
+      {spedPreview && (
+        <Modal title={spedPreview.tipo + " — prévia do arquivo"} onClose={() => setSpedPreview(null)} wide>
+          <div style={{ fontSize: 11.5, color: MUTED, marginBottom: 8 }}>{spedPreview.conteudo.split("\r\n").length} registros gerados. Confira antes de baixar.</div>
+          <div style={{ fontFamily: "monospace", fontSize: 10.5, background: GREEN_DARK, color: "#D7E3DC", padding: 14, borderRadius: 8, overflow: "auto", whiteSpace: "pre", maxHeight: "50vh" }}>
+            {spedPreview.conteudo}
+          </div>
+          <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+            <Button onClick={() => downloadTextFile(spedPreview.nomeArquivo, spedPreview.conteudo)}>Baixar arquivo .txt</Button>
+            <Button variant="ghost" onClick={() => setSpedPreview(null)}>Fechar</Button>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }
