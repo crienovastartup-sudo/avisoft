@@ -1,1036 +1,1275 @@
-<!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>BuildTrack AI - Dashboard de Construção</title>
-    <!-- Tailwind CSS para Estilização de Alto Nível -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Chart.js para Gráficos Interativos Premium -->
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <!-- SheetJS (XLSX) para Leitura de Planilhas Excel Diretamente no Navegador -->
-    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-    <!-- Fontes do Google (Inter) para Máxima Legibilidade -->
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
-    
-    <style>
-        body {
-            font-family: 'Inter', sans-serif;
-            background-color: #f8fafc;
-        }
-        /* Custom scrollbar para visual premium */
-        ::-webkit-scrollbar {
-            width: 6px;
-            height: 6px;
-        }
-        ::-webkit-scrollbar-track {
-            background: #f1f5f9;
-        }
-        ::-webkit-scrollbar-thumb {
-            background: #cbd5e1;
-            border-radius: 4px;
-        }
-        ::-webkit-scrollbar-thumb:hover {
-            background: #94a3b8;
-        }
-        
-        /* Otimizações Especiais para Impressão limpa em PDF */
-        @media print {
-            .no-print {
-                display: none !important;
-            }
-            .print-area {
-                width: 100% !important;
-                max-width: 100% !important;
-                box-shadow: none !important;
-                border: none !important;
-                background: white !important;
-                padding: 0 !important;
-                margin: 0 !important;
-            }
-            .page-break {
-                page-break-before: always;
-            }
-            body {
-                background: white !important;
-                color: black !important;
-            }
-        }
-    </style>
-</head>
-<body class="text-slate-800 antialiased min-h-screen flex flex-col">
+import React, { useState, useEffect, useCallback, Component } from "react";
 
-    <!-- Topbar Executive Banner -->
-    <header class="bg-slate-900 text-white shadow-md border-b border-slate-800 no-print">
-        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex flex-col sm:flex-row justify-between items-center gap-4">
-            <div class="flex items-center gap-3">
-                <div class="p-2.5 bg-blue-600 rounded-xl text-white shadow-lg shadow-blue-500/20">
-                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"></path>
-                    </svg>
-                </div>
-                <div>
-                    <h1 class="text-xl font-bold tracking-tight">BuildTrack <span class="text-blue-500">AI</span></h1>
-                    <p class="text-xs text-slate-400">Plataforma Avançada de Gestão de Obras & Auditoria de Caixa</p>
-                </div>
-            </div>
-            
-            <!-- Quick Globals Indicator -->
-            <div class="flex items-center gap-6 text-sm text-slate-300">
-                <div class="hidden md:block">
-                    <span class="text-xs text-slate-500 block uppercase font-semibold">Total Portfólio</span>
-                    <span class="font-bold text-white text-base" id="topbar-total-budget">$1.89M</span>
-                </div>
-                <div class="h-8 w-[1px] bg-slate-800 hidden md:block"></div>
-                <div>
-                    <span class="text-xs text-slate-500 block uppercase font-semibold">Média de Conclusão</span>
-                    <span class="font-bold text-emerald-400 text-base" id="topbar-avg-completion">41.61%</span>
-                </div>
-            </div>
+/* ============================================================
+   AVISOFT — ERP para granjas de postura comercial
+   Protótipo funcional: cadastro multi-empresa/filial, login com
+   permissões por módulo, vendas, compras, estoque, fábrica de
+   ração, financeiro, contabilidade (DRE + Balanço automáticos),
+   logística e módulo fiscal (ilustrativo).
+   ============================================================ */
+
+const GREEN = "#1B4332";
+const GREEN_DARK = "#0F2A1D";
+const GREEN_LIGHT = "#2B5D42";
+const GOLD = "#D4A017";
+const GOLD_LIGHT = "#E9C767";
+const BG = "#F3F5F2";
+const CARD = "#FFFFFF";
+const BORDER = "#DCE3DD";
+const INK = "#1F2A24";
+const MUTED = "#647169";
+const DANGER = "#B5482C";
+const SUCCESS = "#2F7D4F";
+
+const STORAGE_KEY = "avisoft-db-v1";
+
+const emptyDB = () => ({
+  empresas: [],
+  usuarios: [],
+  produtos: [],
+  vendedores: [],
+  clientes: [],
+  fornecedores: [],
+  vendas: [],
+  compras: [],
+  formulacoes: [],
+  producoesRacao: [],
+  motoristas: [],
+  veiculos: [],
+  fretes: [],
+});
+
+const MODULES = [
+  { key: "inicio", label: "Início", icon: "\u2302", always: true },
+  { key: "cadastro", label: "Empresa & Filiais", icon: "\u2698" },
+  { key: "usuarios", label: "Usuários & Permissões", icon: "\u2699" },
+  { key: "produtos", label: "Produtos & Embalagens", icon: "\u25A6" },
+  { key: "vendas", label: "Vendas & Comissões", icon: "\u2191" },
+  { key: "estoque", label: "Almoxarifado", icon: "\u25A3" },
+  { key: "racao", label: "Fábrica de Ração", icon: "\u2698" },
+  { key: "compras", label: "Compras & Insumos", icon: "\u2193" },
+  { key: "financeiro", label: "Financeiro", icon: "$" },
+  { key: "contabilidade", label: "Contabilidade", icon: "\u25A4" },
+  { key: "logistica", label: "Logística", icon: "\u2692" },
+  { key: "fiscal", label: "Fiscal (NFe/SPED)", icon: "\u2637" },
+];
+
+function uid() {
+  return Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
+}
+
+function brl(v) {
+  const n = Number(v) || 0;
+  return n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
+
+function todayISO() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+/* ---------------- persistence helpers ---------------- */
+
+function hasStorage() {
+  return typeof window !== "undefined" && !!window.storage && typeof window.storage.get === "function";
+}
+
+async function loadDB() {
+  if (!hasStorage()) return emptyDB();
+  try {
+    const res = await window.storage.get(STORAGE_KEY, false);
+    if (res && res.value) {
+      const parsed = JSON.parse(res.value);
+      return { ...emptyDB(), ...parsed, empresas: Array.isArray(parsed.empresas) ? parsed.empresas : [] };
+    }
+  } catch (e) {
+    // chave inexistente na primeira execução, ou armazenamento indisponível — começa vazio
+  }
+  return emptyDB();
+}
+
+async function saveDB(db) {
+  if (!hasStorage()) return false;
+  try {
+    await window.storage.set(STORAGE_KEY, JSON.stringify(db), false);
+    return true;
+  } catch (e) {
+    console.error("AVISOFT: falha ao salvar", e);
+    return false;
+  }
+}
+
+async function resetDB() {
+  if (hasStorage()) {
+    try { await window.storage.delete(STORAGE_KEY, false); } catch (e) { /* ignore */ }
+  }
+}
+
+/* ---------------- small UI primitives ---------------- */
+
+function Field({ label, children }) {
+  return (
+    <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12.5, color: MUTED, fontWeight: 600 }}>
+      {label}
+      {children}
+    </label>
+  );
+}
+
+const inputStyle = {
+  border: `1px solid ${BORDER}`,
+  borderRadius: 8,
+  padding: "8px 10px",
+  fontSize: 13.5,
+  color: INK,
+  background: CARD,
+  outline: "none",
+  fontFamily: "inherit",
+};
+
+function TextInput(props) {
+  return <input {...props} style={{ ...inputStyle, ...(props.style || {}) }} />;
+}
+function Select({ options, ...props }) {
+  return (
+    <select {...props} style={{ ...inputStyle, ...(props.style || {}) }}>
+      <option value="">Selecione…</option>
+      {options.map((o) => (
+        <option key={o.value} value={o.value}>{o.label}</option>
+      ))}
+    </select>
+  );
+}
+
+function Button({ variant = "primary", children, style, ...props }) {
+  const variants = {
+    primary: { background: GREEN, color: "#fff" },
+    gold: { background: GOLD, color: GREEN_DARK },
+    ghost: { background: "transparent", color: GREEN, border: `1px solid ${BORDER}` },
+    danger: { background: "transparent", color: DANGER, border: `1px solid ${DANGER}55` },
+  };
+  return (
+    <button
+      {...props}
+      style={{
+        border: "none",
+        borderRadius: 8,
+        padding: "8px 14px",
+        fontSize: 13,
+        fontWeight: 700,
+        cursor: "pointer",
+        ...variants[variant],
+        ...style,
+      }}
+    >
+      {children}
+    </button>
+  );
+}
+
+function Card({ title, subtitle, right, children, style }) {
+  return (
+    <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, padding: 18, ...style }}>
+      {(title || right) && (
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 14 }}>
+          <div>
+            {title && <div style={{ fontSize: 15, fontWeight: 800, color: GREEN }}>{title}</div>}
+            {subtitle && <div style={{ fontSize: 12, color: MUTED, marginTop: 2 }}>{subtitle}</div>}
+          </div>
+          {right}
         </div>
-    </header>
+      )}
+      {children}
+    </div>
+  );
+}
 
-    <!-- Main Content Container -->
-    <main class="flex-grow max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-6 flex flex-col lg:flex-row gap-6 print-area">
-        
-        <!-- SIDEBAR CONTROLS (Hides on print) -->
-        <section class="w-full lg:w-80 flex flex-col gap-6 no-print shrink-0">
-            
-            <!-- Navigation Card -->
-            <div class="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm">
-                <h3 class="text-sm font-bold text-slate-500 uppercase tracking-wider mb-4">Painel de Navegação</h3>
-                <nav class="space-y-1">
-                    <button onclick="switchTab('overview')" id="nav-overview" class="w-full flex items-center gap-3 px-4 py-3 text-sm font-semibold rounded-xl transition bg-blue-50 text-blue-700">
-                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v4a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v4a2 2 0 01-2 2h-2a2 2 0 01-2-2V6z"></path>
-                        </svg>
-                        <span>Visão Geral</span>
-                    </button>
-                    <button onclick="switchTab('details')" id="nav-details" class="w-full flex items-center gap-3 px-4 py-3 text-sm font-semibold rounded-xl transition text-slate-600 hover:bg-slate-50">
-                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"></path>
-                        </svg>
-                        <span>Análise por Casa</span>
-                    </button>
-                </nav>
+function StatCard({ label, value, accent }) {
+  return (
+    <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderLeft: `4px solid ${accent || GOLD}`, borderRadius: 10, padding: "14px 16px", minWidth: 180, flex: 1 }}>
+      <div style={{ fontSize: 11.5, color: MUTED, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.4 }}>{label}</div>
+      <div style={{ fontSize: 22, fontWeight: 800, color: GREEN, marginTop: 4 }}>{value}</div>
+    </div>
+  );
+}
+
+function Table({ columns, rows, onEdit, onDelete, emptyText }) {
+  if (!rows.length) {
+    return <div style={{ padding: 24, textAlign: "center", color: MUTED, fontSize: 13 }}>{emptyText || "Nada cadastrado ainda. Use o formulário acima para começar."}</div>;
+  }
+  return (
+    <div style={{ overflowX: "auto" }}>
+      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+        <thead>
+          <tr>
+            {columns.map((c) => (
+              <th key={c.key} style={{ textAlign: "left", padding: "8px 10px", color: MUTED, fontWeight: 700, fontSize: 11.5, textTransform: "uppercase", letterSpacing: 0.3, borderBottom: `2px solid ${BORDER}` }}>{c.label}</th>
+            ))}
+            {(onEdit || onDelete) && <th style={{ borderBottom: `2px solid ${BORDER}` }} />}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r, i) => (
+            <tr key={r.id || i} style={{ background: i % 2 ? BG : CARD }}>
+              {columns.map((c) => (
+                <td key={c.key} style={{ padding: "9px 10px", borderBottom: `1px solid ${BORDER}`, color: INK }}>
+                  {c.render ? c.render(r) : r[c.key]}
+                </td>
+              ))}
+              {(onEdit || onDelete) && (
+                <td style={{ padding: "9px 10px", borderBottom: `1px solid ${BORDER}`, whiteSpace: "nowrap" }}>
+                  {onEdit && <button onClick={() => onEdit(r)} style={{ border: "none", background: "none", color: GREEN, cursor: "pointer", fontSize: 12, fontWeight: 700, marginRight: 10 }}>editar</button>}
+                  {onDelete && <button onClick={() => onDelete(r)} style={{ border: "none", background: "none", color: DANGER, cursor: "pointer", fontSize: 12, fontWeight: 700 }}>excluir</button>}
+                </td>
+              )}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/* Generic CRUD block driven by a field schema — cuts repetition
+   across the simpler registration modules (produtos, clientes,
+   vendedores, fornecedores, motoristas, veículos…). */
+function CrudBlock({ title, subtitle, fields, items, onChange, columns, filialId }) {
+  const blank = () => {
+    const o = { id: null, filialId };
+    fields.forEach((f) => (o[f.key] = f.type === "number" ? "" : ""));
+    return o;
+  };
+  const [draft, setDraft] = useState(blank());
+  const editing = !!draft.id;
+
+  function reset() { setDraft(blank()); }
+
+  function submit(e) {
+    e.preventDefault();
+    if (editing) {
+      onChange(items.map((it) => (it.id === draft.id ? draft : it)));
+    } else {
+      onChange([...items, { ...draft, id: uid(), filialId }]);
+    }
+    reset();
+  }
+
+  function edit(row) { setDraft(row); }
+  function remove(row) { onChange(items.filter((it) => it.id !== row.id)); if (draft.id === row.id) reset(); }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <Card title={title} subtitle={subtitle}>
+        <form onSubmit={submit} style={{ display: "grid", gridTemplateColumns: `repeat(${Math.min(fields.length, 4)}, 1fr)`, gap: 12, alignItems: "end" }}>
+          {fields.map((f) => (
+            <Field label={f.label} key={f.key}>
+              {f.type === "select" ? (
+                <Select
+                  options={f.options}
+                  value={draft[f.key] || ""}
+                                    onChange={(e) => setDraft({ ...draft, [f.key]: e.target.value })}
+                />
+              ) : (
+                <TextInput
+                  type={f.type || "text"}
+                  step={f.type === "number" ? "0.01" : undefined}
+                  value={draft[f.key] ?? ""}
+                                    onChange={(e) => setDraft({ ...draft, [f.key]: e.target.value })}
+                />
+              )}
+            </Field>
+          ))}
+          <div style={{ display: "flex", gap: 8 }}>
+            <Button type="submit">{editing ? "Salvar alteração" : "Adicionar"}</Button>
+            {editing && <Button type="button" variant="ghost" onClick={reset}>Cancelar</Button>}
+          </div>
+        </form>
+      </Card>
+      <Card title={`Cadastrados (${items.length})`}>
+        <Table columns={columns || fields.map((f) => ({ key: f.key, label: f.label }))} rows={items} onEdit={edit} onDelete={remove} />
+      </Card>
+    </div>
+  );
+}
+
+/* ---------------- error boundary (nunca falha em silêncio) ---------------- */
+
+class ErrorBoundary extends Component {
+  constructor(props) {
+    super(props);
+    this.state = { error: null };
+  }
+  static getDerivedStateFromError(error) {
+    return { error };
+  }
+  componentDidCatch(error, info) {
+    console.error("AVISOFT crashed:", error, info);
+  }
+  render() {
+    if (this.state.error) {
+      return (
+        <div style={{ ...shell(), justifyContent: "center", alignItems: "center", padding: 24 }}>
+          <div style={{ background: CARD, border: `1px solid ${DANGER}`, borderRadius: 12, padding: 24, maxWidth: 560 }}>
+            <div style={{ fontSize: 16, fontWeight: 800, color: DANGER, marginBottom: 8 }}>Algo deu errado no AVISOFT</div>
+            <div style={{ fontSize: 12.5, color: MUTED, marginBottom: 12 }}>Isso não deveria acontecer — a mensagem abaixo ajuda a identificar a causa.</div>
+            <pre style={{ background: BG, padding: 12, borderRadius: 8, fontSize: 11.5, whiteSpace: "pre-wrap", color: INK, maxHeight: 200, overflow: "auto" }}>{String(this.state.error?.message || this.state.error)}</pre>
+            <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+              <Button onClick={() => this.setState({ error: null })}>Tentar de novo</Button>
+              <Button variant="danger" onClick={async () => { await resetDB(); window.location.reload ? window.location.reload() : this.setState({ error: null }); }}>Limpar dados e recomeçar</Button>
             </div>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
-            <!-- Upload Excel Card -->
-            <div class="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm">
-                <div class="flex items-center gap-2.5 mb-3">
-                    <div class="p-1.5 bg-emerald-100 rounded-lg text-emerald-700">
-                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
-                        </svg>
-                    </div>
-                    <h3 class="text-sm font-bold text-slate-800 uppercase tracking-wider">Novo Budget Excel</h3>
-                </div>
-                <p class="text-xs text-slate-500 mb-4">Adicione ou atualize propriedades arrastando arquivos como <span class="font-semibold text-slate-600">1462 dufferin Budget...</span></p>
-                
-                <div id="drop-zone" class="border-2 border-dashed border-slate-200 hover:border-emerald-500 rounded-xl p-4 text-center cursor-pointer transition bg-slate-50/50">
-                    <svg class="w-8 h-8 text-slate-400 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
-                    </svg>
-                    <span class="text-xs font-semibold text-slate-600 block">Arraste a planilha aqui</span>
-                    <span class="text-[10px] text-slate-400">ou clique para procurar</span>
-                    <input type="file" id="excel-file-input" class="hidden" accept=".xlsx, .xls">
-                </div>
+/* ============================================================
+   MAIN APP
+   ============================================================ */
+
+export default function AvisoftRoot() {
+  return (
+    <ErrorBoundary>
+      <AvisoftApp />
+    </ErrorBoundary>
+  );
+}
+
+function AvisoftApp() {
+  const [db, setDb] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [saveError, setSaveError] = useState(false);
+  const [session, setSession] = useState(null); // { usuarioId, empresaId, filialId }
+  const [activeModule, setActiveModule] = useState("inicio");
+
+  useEffect(() => {
+    loadDB().then((data) => { setDb(data); setLoading(false); });
+  }, []);
+
+  const persist = useCallback((next) => {
+    setDb(next);
+    saveDB(next).then((ok) => setSaveError(!ok));
+  }, []);
+
+  function update(patchFn) {
+    setDb((prev) => {
+      const next = patchFn(prev);
+      saveDB(next).then((ok) => setSaveError(!ok));
+      return next;
+    });
+  }
+
+  if (loading) {
+    return (
+      <div style={shell()}>
+        <div style={{ margin: "auto", color: MUTED, fontSize: 14 }}>Carregando AVISOFT…</div>
+      </div>
+    );
+  }
+
+  if (!db.empresas.length) {
+    return <Onboarding onCreate={(payload) => { persist(payload.db); setSession(payload.session); }} />;
+  }
+
+  if (!session) {
+    return <Login db={db} onLogin={setSession} />;
+  }
+
+  const empresa = db.empresas.find((e) => e.id === session.empresaId);
+  const filial = empresa?.filiais.find((f) => f.id === session.filialId);
+  const usuario = db.usuarios.find((u) => u.id === session.usuarioId);
+  const canSee = (key) => usuario?.admin || (usuario?.permissoes || []).includes(key);
+
+  return (
+    <div style={shell()}>
+      {saveError && (
+        <div style={{ position: "fixed", top: 10, right: 10, background: DANGER, color: "#fff", padding: "8px 14px", borderRadius: 8, fontSize: 12.5, zIndex: 50 }}>
+          Não foi possível salvar automaticamente. Suas últimas alterações podem não ter sido gravadas.
+        </div>
+      )}
+      <Sidebar
+        modules={MODULES.filter((m) => m.always || canSee(m.key))}
+        active={activeModule}
+        onSelect={setActiveModule}
+        empresa={empresa}
+        filial={filial}
+        empresas={db.empresas}
+        onSwitchFilial={(empresaId, filialId) => setSession({ ...session, empresaId, filialId })}
+        usuario={usuario}
+        onLogout={() => setSession(null)}
+      />
+      <main style={{ flex: 1, padding: "22px 26px", overflowY: "auto" }}>
+        <ModuleView
+          activeModule={activeModule}
+          db={db}
+          update={update}
+          filialId={session.filialId}
+          empresaId={session.empresaId}
+          usuario={usuario}
+        />
+      </main>
+    </div>
+  );
+}
+
+function shell() {
+  return {
+    display: "flex",
+    minHeight: "100%",
+    background: BG,
+    color: INK,
+    fontFamily: "'Segoe UI', 'Inter', system-ui, -apple-system, sans-serif",
+  };
+}
+
+/* ---------------- Onboarding (first run) ---------------- */
+
+function Onboarding({ onCreate }) {
+  const [form, setForm] = useState({ nome: "", cnpj: "", endereco: "", telefone: "", responsavel: "", adminNome: "", adminLogin: "", adminSenha: "" });
+  const [erro, setErro] = useState("");
+  const [enviando, setEnviando] = useState(false);
+
+  function submit(e) {
+    e.preventDefault();
+    setErro("");
+    if (!form.nome || !form.adminNome || !form.adminLogin || !form.adminSenha) {
+      setErro("Preencha nome da empresa, nome, login e senha do administrador.");
+      return;
+    }
+    setEnviando(true);
+    try {
+      const empresaId = uid();
+      const filialId = uid();
+      const usuarioId = uid();
+      const db = {
+        ...emptyDB(),
+        empresas: [{
+          id: empresaId,
+          nome: form.nome,
+          cnpj: form.cnpj,
+          endereco: form.endereco,
+          telefone: form.telefone,
+          responsavel: form.responsavel,
+          filiais: [{ id: filialId, nome: "Matriz", endereco: form.endereco }],
+        }],
+        usuarios: [{
+          id: usuarioId,
+          nome: form.adminNome,
+          login: form.adminLogin,
+          senha: form.adminSenha,
+          empresaId,
+          admin: true,
+          permissoes: MODULES.map((m) => m.key),
+          ativo: true,
+        }],
+      };
+      onCreate({ db, session: { usuarioId, empresaId, filialId } });
+    } catch (err) {
+      console.error("AVISOFT onboarding falhou:", err);
+      setErro("Não foi possível criar a empresa: " + (err?.message || String(err)));
+      setEnviando(false);
+    }
+  }
+
+  return (
+    <div style={{ ...shell(), justifyContent: "center", alignItems: "center" }}>
+      <form onSubmit={submit} style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 14, padding: 32, width: 520, display: "flex", flexDirection: "column", gap: 16 }}>
+        <div>
+          <div style={{ fontSize: 12, fontWeight: 800, color: GOLD, letterSpacing: 1 }}>BEM-VINDO AO</div>
+          <div style={{ fontSize: 26, fontWeight: 800, color: GREEN }}>AVISOFT</div>
+          <div style={{ fontSize: 12.5, color: MUTED, marginTop: 4 }}>Vamos cadastrar sua empresa e o primeiro usuário administrador.</div>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <Field label="Nome da empresa"><TextInput value={form.nome} onChange={(e) => setForm({ ...form, nome: e.target.value })} /></Field>
+          <Field label="CNPJ"><TextInput value={form.cnpj} onChange={(e) => setForm({ ...form, cnpj: e.target.value })} /></Field>
+          <Field label="Endereço"><TextInput value={form.endereco} onChange={(e) => setForm({ ...form, endereco: e.target.value })} /></Field>
+          <Field label="Telefone"><TextInput value={form.telefone} onChange={(e) => setForm({ ...form, telefone: e.target.value })} /></Field>
+          <Field label="Responsável"><TextInput value={form.responsavel} onChange={(e) => setForm({ ...form, responsavel: e.target.value })} /></Field>
+        </div>
+        <div style={{ height: 1, background: BORDER, margin: "4px 0" }} />
+        <div style={{ fontSize: 13, fontWeight: 700, color: GREEN }}>Usuário administrador</div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+          <Field label="Nome"><TextInput value={form.adminNome} onChange={(e) => setForm({ ...form, adminNome: e.target.value })} /></Field>
+          <Field label="Login"><TextInput value={form.adminLogin} onChange={(e) => setForm({ ...form, adminLogin: e.target.value })} /></Field>
+          <Field label="Senha"><TextInput type="password" value={form.adminSenha} onChange={(e) => setForm({ ...form, adminSenha: e.target.value })} /></Field>
+        </div>
+        <Button type="submit" style={{ marginTop: 6 }}>Criar empresa e entrar</Button>
+      </form>
+    </div>
+  );
+}
+
+/* ---------------- Login ---------------- */
+
+function Login({ db, onLogin }) {
+  const [login, setLogin] = useState("");
+  const [senha, setSenha] = useState("");
+  const [erro, setErro] = useState("");
+
+  function submit(e) {
+    e.preventDefault();
+    const usuario = db.usuarios.find((u) => u.login === login && u.senha === senha && u.ativo !== false);
+    if (!usuario) { setErro("Login ou senha incorretos."); return; }
+    const empresa = db.empresas.find((e) => e.id === usuario.empresaId) || db.empresas[0];
+    const filial = empresa.filiais[0];
+    onLogin({ usuarioId: usuario.id, empresaId: empresa.id, filialId: filial.id });
+  }
+
+  return (
+    <div style={{ ...shell(), justifyContent: "center", alignItems: "center" }}>
+      <form onSubmit={submit} style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 14, padding: 32, width: 360, display: "flex", flexDirection: "column", gap: 14 }}>
+        <div style={{ fontSize: 26, fontWeight: 800, color: GREEN }}>AVISOFT</div>
+        <div style={{ fontSize: 12.5, color: MUTED, marginBottom: 6 }}>Entre com seu usuário e senha.</div>
+        <Field label="Login"><TextInput autoFocus value={login} onChange={(e) => setLogin(e.target.value)} /></Field>
+        <Field label="Senha"><TextInput type="password" value={senha} onChange={(e) => setSenha(e.target.value)} /></Field>
+        {erro && <div style={{ color: DANGER, fontSize: 12.5 }}>{erro}</div>}
+        <Button type="submit">Entrar</Button>
+      </form>
+    </div>
+  );
+}
+
+/* ---------------- Sidebar ---------------- */
+
+function Sidebar({ modules, active, onSelect, empresa, filial, empresas, onSwitchFilial, usuario, onLogout }) {
+  return (
+    <aside style={{ width: 250, background: GREEN, color: "#fff", display: "flex", flexDirection: "column", flexShrink: 0 }}>
+      <div style={{ padding: "20px 18px 14px" }}>
+        <div style={{ fontSize: 20, fontWeight: 800, letterSpacing: 0.5 }}>AVI<span style={{ color: GOLD }}>SOFT</span></div>
+        <div style={{ fontSize: 10.5, color: "#B7C9BE", marginTop: 2, letterSpacing: 0.5 }}>GESTÃO DE GRANJA DE POSTURA</div>
+      </div>
+      <div style={{ padding: "0 18px 14px" }}>
+        <select
+          value={`${empresa.id}::${filial?.id}`}
+          onChange={(e) => { const [eid, fid] = e.target.value.split("::"); onSwitchFilial(eid, fid); }}
+          style={{ width: "100%", background: GREEN_DARK, color: "#fff", border: `1px solid ${GREEN_LIGHT}`, borderRadius: 8, padding: "7px 8px", fontSize: 12 }}
+        >
+          {empresas.flatMap((e) => e.filiais.map((f) => (
+            <option key={f.id} value={`${e.id}::${f.id}`}>{e.nome} — {f.nome}</option>
+          )))}
+        </select>
+      </div>
+      <nav style={{ flex: 1, overflowY: "auto", padding: "4px 10px" }}>
+        {modules.map((m) => (
+          <button
+            key={m.key}
+            onClick={() => onSelect(m.key)}
+            style={{
+              display: "flex", alignItems: "center", gap: 10, width: "100%", textAlign: "left",
+              padding: "9px 10px", marginBottom: 2, borderRadius: 8, border: "none", cursor: "pointer",
+              background: active === m.key ? GOLD : "transparent",
+              color: active === m.key ? GREEN_DARK : "#EAF0EC",
+              fontWeight: active === m.key ? 800 : 600, fontSize: 13,
+            }}
+          >
+            <span style={{ width: 18, textAlign: "center", opacity: 0.9 }}>{m.icon}</span>
+            {m.label}
+          </button>
+        ))}
+      </nav>
+      <div style={{ padding: 14, borderTop: `1px solid ${GREEN_LIGHT}` }}>
+        <div style={{ fontSize: 12.5, fontWeight: 700 }}>{usuario?.nome}</div>
+        <div style={{ fontSize: 10.5, color: "#B7C9BE", marginBottom: 8 }}>{usuario?.admin ? "Administrador" : "Usuário"}</div>
+        <button onClick={onLogout} style={{ background: "none", border: `1px solid ${GREEN_LIGHT}`, color: "#EAF0EC", borderRadius: 8, padding: "6px 10px", fontSize: 12, cursor: "pointer", width: "100%" }}>Sair</button>
+      </div>
+    </aside>
+  );
+}
+
+/* ---------------- Module router ---------------- */
+
+function ModuleView({ activeModule, db, update, filialId, empresaId, usuario }) {
+  const set = (key) => (items) => update((prev) => ({ ...prev, [key]: mergeByFilial(prev[key], items, filialId) }));
+  const scoped = (key) => db[key].filter((r) => r.filialId === filialId);
+
+  switch (activeModule) {
+    case "inicio":
+      return <Inicio db={db} filialId={filialId} />;
+    case "cadastro":
+      return <CadastroEmpresa db={db} update={update} empresaId={empresaId} />;
+    case "usuarios":
+      return <Usuarios db={db} update={update} empresaId={empresaId} />;
+    case "produtos":
+      return (
+        <CrudBlock
+          title="Produtos & Embalagens"
+          subtitle="Ovos por tipo/calibre, caixas, cartelas e demais itens vendáveis ou de embalagem."
+          filialId={filialId}
+          items={scoped("produtos")}
+          onChange={set("produtos")}
+          fields={[
+            { key: "nome", label: "Nome do produto", required: true },
+            { key: "tipo", label: "Tipo", type: "select", options: [{ value: "ovo", label: "Ovo" }, { value: "embalagem", label: "Embalagem" }, { value: "outro", label: "Outro" }] },
+            { key: "unidade", label: "Unidade", type: "select", options: [{ value: "dz", label: "Dúzia" }, { value: "cx", label: "Caixa (30 dz)" }, { value: "un", label: "Unidade" }, { value: "kg", label: "Kg" }] },
+            { key: "custoUnit", label: "Custo unitário (R$)", type: "number" },
+            { key: "precoVenda", label: "Preço de venda (R$)", type: "number" },
+          ]}
+          columns={[
+            { key: "nome", label: "Produto" },
+            { key: "tipo", label: "Tipo" },
+            { key: "unidade", label: "Unid." },
+            { key: "custoUnit", label: "Custo", render: (r) => brl(r.custoUnit) },
+            { key: "precoVenda", label: "Preço", render: (r) => brl(r.precoVenda) },
+          ]}
+        />
+      );
+    case "vendas":
+      return <Vendas db={db} update={update} filialId={filialId} />;
+    case "estoque":
+      return <Estoque db={db} filialId={filialId} />;
+    case "racao":
+      return <FabricaRacao db={db} update={update} filialId={filialId} />;
+    case "compras":
+      return <Compras db={db} update={update} filialId={filialId} />;
+    case "financeiro":
+      return <Financeiro db={db} update={update} filialId={filialId} />;
+    case "contabilidade":
+      return <Contabilidade db={db} filialId={filialId} />;
+    case "logistica":
+      return <Logistica db={db} update={update} filialId={filialId} />;
+    case "fiscal":
+      return <Fiscal db={db} filialId={filialId} />;
+    default:
+      return null;
+  }
+}
+
+function mergeByFilial(all, editedSubset, filialId) {
+  const others = all.filter((r) => r.filialId !== filialId);
+  return [...others, ...editedSubset];
+}
+
+/* ---------------- Início / Dashboard ---------------- */
+
+function Inicio({ db, filialId }) {
+  const vendas = db.vendas.filter((v) => v.filialId === filialId);
+  const compras = db.compras.filter((c) => c.filialId === filialId);
+  const fretes = db.fretes.filter((f) => f.filialId === filialId);
+  const totalReceita = vendas.reduce((s, v) => s + Number(v.total || 0), 0);
+  const totalReceber = vendas.filter((v) => v.statusPagamento !== "pago").reduce((s, v) => s + Number(v.total || 0), 0);
+  const totalPagar = [...compras, ...fretes].filter((c) => c.statusPagamento !== "pago").reduce((s, c) => s + Number(c.valor || c.valorFrete || 0), 0);
+  const totalDespesas = compras.reduce((s, c) => s + Number(c.valor || 0), 0) + fretes.reduce((s, f) => s + Number(f.valorFrete || 0), 0);
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+      <div>
+        <div style={{ fontSize: 20, fontWeight: 800, color: GREEN }}>Visão geral</div>
+        <div style={{ fontSize: 13, color: MUTED }}>Resumo da filial selecionada, atualizado a cada lançamento.</div>
+      </div>
+      <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
+        <StatCard label="Faturamento total" value={brl(totalReceita)} accent={GREEN} />
+        <StatCard label="A receber" value={brl(totalReceber)} accent={GOLD} />
+        <StatCard label="A pagar" value={brl(totalPagar)} accent={DANGER} />
+        <StatCard label="Despesas lançadas" value={brl(totalDespesas)} accent={MUTED} />
+      </div>
+      <Card title="Últimas vendas">
+        <Table
+          columns={[
+            { key: "data", label: "Data" },
+            { key: "total", label: "Valor", render: (r) => brl(r.total) },
+            { key: "statusPagamento", label: "Status", render: (r) => <StatusPill status={r.statusPagamento} /> },
+          ]}
+          rows={[...vendas].sort((a, b) => (a.data < b.data ? 1 : -1)).slice(0, 6)}
+          emptyText="Nenhuma venda lançada ainda — vá ao módulo Vendas para começar."
+        />
+      </Card>
+    </div>
+  );
+}
+
+function StatusPill({ status }) {
+  const ok = status === "pago";
+  return (
+    <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 9px", borderRadius: 999, background: ok ? "#E4F3E9" : "#FBEAE4", color: ok ? SUCCESS : DANGER }}>
+      {ok ? "Pago" : "Pendente"}
+    </span>
+  );
+}
+
+/* ---------------- Cadastro Empresa & Filiais ---------------- */
+
+function CadastroEmpresa({ db, update, empresaId }) {
+  const empresa = db.empresas.find((e) => e.id === empresaId);
+  const [form, setForm] = useState(empresa);
+  const [novaFilial, setNovaFilial] = useState({ nome: "", endereco: "" });
+
+  function salvar(e) {
+    e.preventDefault();
+    update((prev) => ({ ...prev, empresas: prev.empresas.map((emp) => (emp.id === empresaId ? { ...emp, ...form } : emp)) }));
+  }
+
+  function addFilial(e) {
+    e.preventDefault();
+    if (!novaFilial.nome) return;
+    update((prev) => ({
+      ...prev,
+      empresas: prev.empresas.map((emp) => emp.id === empresaId ? { ...emp, filiais: [...emp.filiais, { id: uid(), ...novaFilial }] } : emp),
+    }));
+    setNovaFilial({ nome: "", endereco: "" });
+  }
+
+  function removeFilial(filialId) {
+    if (empresa.filiais.length <= 1) return;
+    update((prev) => ({
+      ...prev,
+      empresas: prev.empresas.map((emp) => emp.id === empresaId ? { ...emp, filiais: emp.filiais.filter((f) => f.id !== filialId) } : emp),
+    }));
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <Card title="Dados da empresa" subtitle="Essas informações aparecem em relatórios e documentos fiscais.">
+        <form onSubmit={salvar} style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <Field label="Nome"><TextInput value={form.nome} onChange={(e) => setForm({ ...form, nome: e.target.value })} /></Field>
+          <Field label="CNPJ"><TextInput value={form.cnpj} onChange={(e) => setForm({ ...form, cnpj: e.target.value })} /></Field>
+          <Field label="Endereço"><TextInput value={form.endereco} onChange={(e) => setForm({ ...form, endereco: e.target.value })} /></Field>
+          <Field label="Telefone"><TextInput value={form.telefone} onChange={(e) => setForm({ ...form, telefone: e.target.value })} /></Field>
+          <Field label="Responsável"><TextInput value={form.responsavel} onChange={(e) => setForm({ ...form, responsavel: e.target.value })} /></Field>
+          <div style={{ alignSelf: "end" }}><Button type="submit">Salvar</Button></div>
+        </form>
+      </Card>
+
+      <Card title="Filiais" subtitle="Cada filial opera com seus próprios lançamentos — vendas, estoque, financeiro e contabilidade ficam separados por filial.">
+        <form onSubmit={addFilial} style={{ display: "flex", gap: 12, marginBottom: 14, alignItems: "end" }}>
+          <Field label="Nome da filial"><TextInput value={novaFilial.nome} onChange={(e) => setNovaFilial({ ...novaFilial, nome: e.target.value })} /></Field>
+          <Field label="Endereço"><TextInput value={novaFilial.endereco} onChange={(e) => setNovaFilial({ ...novaFilial, endereco: e.target.value })} /></Field>
+          <Button type="submit">Adicionar filial</Button>
+        </form>
+        <Table
+          columns={[{ key: "nome", label: "Filial" }, { key: "endereco", label: "Endereço" }]}
+          rows={empresa.filiais}
+          onDelete={(f) => removeFilial(f.id)}
+        />
+      </Card>
+    </div>
+  );
+}
+
+/* ---------------- Usuários & Permissões ---------------- */
+
+function Usuarios({ db, update, empresaId }) {
+  const usuarios = db.usuarios.filter((u) => u.empresaId === empresaId);
+  const blank = { id: null, nome: "", login: "", senha: "", admin: false, permissoes: [], ativo: true };
+  const [draft, setDraft] = useState(blank);
+  const editing = !!draft.id;
+
+  function togglePerm(key) {
+    setDraft((d) => ({ ...d, permissoes: d.permissoes.includes(key) ? d.permissoes.filter((p) => p !== key) : [...d.permissoes, key] }));
+  }
+
+  function submit(e) {
+    e.preventDefault();
+    update((prev) => ({
+      ...prev,
+      usuarios: editing
+        ? prev.usuarios.map((u) => (u.id === draft.id ? draft : u))
+        : [...prev.usuarios, { ...draft, id: uid(), empresaId }],
+    }));
+    setDraft(blank);
+  }
+
+  function remove(u) {
+    update((prev) => ({ ...prev, usuarios: prev.usuarios.filter((x) => x.id !== u.id) }));
+  }
+
+  const assignable = MODULES.filter((m) => !m.always);
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <Card title={editing ? "Editar usuário" : "Novo usuário"} subtitle="Defina quais módulos cada pessoa pode acessar.">
+        <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+            <Field label="Nome"><TextInput value={draft.nome} onChange={(e) => setDraft({ ...draft, nome: e.target.value })} /></Field>
+            <Field label="Login"><TextInput value={draft.login} onChange={(e) => setDraft({ ...draft, login: e.target.value })} /></Field>
+            <Field label="Senha"><TextInput type="password" value={draft.senha} onChange={(e) => setDraft({ ...draft, senha: e.target.value })} /></Field>
+          </div>
+          <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, fontWeight: 600, color: INK }}>
+            <input type="checkbox" checked={draft.admin} onChange={(e) => setDraft({ ...draft, admin: e.target.checked })} />
+            Administrador (acesso total, ignora a lista de módulos abaixo)
+          </label>
+          {!draft.admin && (
+            <div>
+              <div style={{ fontSize: 12.5, fontWeight: 700, color: MUTED, marginBottom: 8 }}>Módulos permitidos</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                {assignable.map((m) => (
+                  <label key={m.key} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, background: draft.permissoes.includes(m.key) ? "#EAF3EC" : BG, border: `1px solid ${BORDER}`, borderRadius: 999, padding: "5px 12px", cursor: "pointer" }}>
+                    <input type="checkbox" checked={draft.permissoes.includes(m.key)} onChange={() => togglePerm(m.key)} />
+                    {m.label}
+                  </label>
+                ))}
+              </div>
             </div>
+          )}
+          <div style={{ display: "flex", gap: 8 }}>
+            <Button type="submit">{editing ? "Salvar alteração" : "Criar usuário"}</Button>
+            {editing && <Button type="button" variant="ghost" onClick={() => setDraft(blank)}>Cancelar</Button>}
+          </div>
+        </form>
+      </Card>
+      <Card title={`Usuários (${usuarios.length})`}>
+        <Table
+          columns={[
+            { key: "nome", label: "Nome" },
+            { key: "login", label: "Login" },
+            { key: "admin", label: "Perfil", render: (r) => (r.admin ? "Administrador" : `${r.permissoes.length} módulo(s)`) },
+          ]}
+          rows={usuarios}
+          onEdit={(u) => setDraft(u)}
+          onDelete={remove}
+        />
+      </Card>
+    </div>
+  );
+}
 
-            <!-- Quick Selection List -->
-            <div class="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm">
-                <h3 class="text-sm font-bold text-slate-500 uppercase tracking-wider mb-3">Minhas Casas (7)</h3>
-                <div class="space-y-2 max-h-64 overflow-y-auto pr-1" id="sidebar-house-list">
-                    <!-- Loaded dynamically in JavaScript -->
-                </div>
+/* ---------------- Vendas & Comissões ---------------- */
+
+function Vendas({ db, update, filialId }) {
+  const produtos = db.produtos.filter((p) => p.filialId === filialId);
+  const vendedores = db.vendedores.filter((v) => v.filialId === filialId);
+  const clientes = db.clientes.filter((c) => c.filialId === filialId);
+  const vendas = db.vendas.filter((v) => v.filialId === filialId);
+
+  const [form, setForm] = useState({ data: todayISO(), clienteId: "", vendedorId: "", produtoId: "", qtd: "", precoUnit: "" });
+
+  function precoAoEscolher(produtoId) {
+    const p = produtos.find((x) => x.id === produtoId);
+    setForm((f) => ({ ...f, produtoId, precoUnit: p ? p.precoVenda : "" }));
+  }
+
+  function lancarVenda(e) {
+    e.preventDefault();
+    const vendedor = vendedores.find((v) => v.id === form.vendedorId);
+    const total = Number(form.qtd || 0) * Number(form.precoUnit || 0);
+    const comissaoValor = vendedor ? total * (Number(vendedor.percentualComissao || 0) / 100) : 0;
+    const venda = {
+      id: uid(), filialId, data: form.data, clienteId: form.clienteId, vendedorId: form.vendedorId,
+      itens: [{ produtoId: form.produtoId, qtd: Number(form.qtd), precoUnit: Number(form.precoUnit) }],
+      total, comissaoValor, statusPagamento: "pendente",
+    };
+    update((prev) => ({ ...prev, vendas: [...prev.vendas, venda] }));
+    setForm({ data: todayISO(), clienteId: "", vendedorId: "", produtoId: "", qtd: "", precoUnit: "" });
+  }
+
+  function marcarPago(v) {
+    update((prev) => ({ ...prev, vendas: prev.vendas.map((x) => (x.id === v.id ? { ...x, statusPagamento: x.statusPagamento === "pago" ? "pendente" : "pago", dataRecebimento: todayISO() } : x)) }));
+  }
+
+  const nomeProduto = (id) => produtos.find((p) => p.id === id)?.nome || "—";
+  const nomeCliente = (id) => clientes.find((c) => c.id === id)?.nome || "—";
+  const nomeVendedor = (id) => vendedores.find((v) => v.id === id)?.nome || "—";
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+        <CrudBlock
+          title="Clientes" filialId={filialId} items={clientes} onChange={(items) => update((prev) => ({ ...prev, clientes: mergeByFilial(prev.clientes, items, filialId) }))}
+          fields={[{ key: "nome", label: "Nome", required: true }, { key: "cidade", label: "Cidade" }, { key: "uf", label: "UF" }]}
+        />
+        <CrudBlock
+          title="Vendedores & Comissão" filialId={filialId} items={vendedores} onChange={(items) => update((prev) => ({ ...prev, vendedores: mergeByFilial(prev.vendedores, items, filialId) }))}
+          fields={[{ key: "nome", label: "Nome", required: true }, { key: "percentualComissao", label: "Comissão (%)", type: "number" }]}
+          columns={[{ key: "nome", label: "Nome" }, { key: "percentualComissao", label: "Comissão", render: (r) => `${r.percentualComissao || 0}%` }]}
+        />
+      </div>
+
+      <Card title="Lançar venda" subtitle="Gera automaticamente uma conta a receber e alimenta a DRE.">
+        <form onSubmit={lancarVenda} style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr 1fr 1fr", gap: 10, alignItems: "end" }}>
+          <Field label="Data"><TextInput type="date" value={form.data} onChange={(e) => setForm({ ...form, data: e.target.value })} /></Field>
+          <Field label="Cliente"><Select options={clientes.map((c) => ({ value: c.id, label: c.nome }))} value={form.clienteId} onChange={(e) => setForm({ ...form, clienteId: e.target.value })} /></Field>
+          <Field label="Vendedor"><Select options={vendedores.map((v) => ({ value: v.id, label: v.nome }))} value={form.vendedorId} onChange={(e) => setForm({ ...form, vendedorId: e.target.value })} /></Field>
+          <Field label="Produto"><Select options={produtos.map((p) => ({ value: p.id, label: p.nome }))} value={form.produtoId} onChange={(e) => precoAoEscolher(e.target.value)} /></Field>
+          <Field label="Qtd"><TextInput type="number" step="0.01" value={form.qtd} onChange={(e) => setForm({ ...form, qtd: e.target.value })} /></Field>
+          <Field label="Preço unit. (R$)"><TextInput type="number" step="0.01" value={form.precoUnit} onChange={(e) => setForm({ ...form, precoUnit: e.target.value })} /></Field>
+          <div style={{ gridColumn: "1 / -1" }}><Button type="submit">Lançar venda</Button></div>
+        </form>
+      </Card>
+
+      <Card title={`Vendas lançadas (${vendas.length})`}>
+        <Table
+          columns={[
+            { key: "data", label: "Data" },
+            { key: "clienteId", label: "Cliente", render: (r) => nomeCliente(r.clienteId) },
+            { key: "vendedorId", label: "Vendedor", render: (r) => nomeVendedor(r.vendedorId) },
+            { key: "produto", label: "Produto", render: (r) => nomeProduto(r.itens[0]?.produtoId) },
+            { key: "total", label: "Total", render: (r) => brl(r.total) },
+            { key: "comissaoValor", label: "Comissão", render: (r) => brl(r.comissaoValor) },
+            { key: "statusPagamento", label: "Recebimento", render: (r) => <button onClick={() => marcarPago(r)} style={{ border: "none", background: "none", cursor: "pointer" }}><StatusPill status={r.statusPagamento} /></button> },
+          ]}
+          rows={[...vendas].sort((a, b) => (a.data < b.data ? 1 : -1))}
+        />
+      </Card>
+    </div>
+  );
+}
+
+/* ---------------- Estoque ---------------- */
+
+function Estoque({ db, filialId }) {
+  const produtos = db.produtos.filter((p) => p.filialId === filialId);
+  const vendas = db.vendas.filter((v) => v.filialId === filialId);
+  const producoes = db.producoesRacao.filter((p) => p.filialId === filialId);
+
+  const saldoVendido = {};
+  vendas.forEach((v) => v.itens.forEach((it) => { saldoVendido[it.produtoId] = (saldoVendido[it.produtoId] || 0) + Number(it.qtd || 0); }));
+
+  const racaoProduzida = producoes.reduce((s, p) => s + Number(p.qtdKg || 0), 0);
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <Card title="Saldo por produto" subtitle="Saída calculada a partir das vendas lançadas (estoque simplificado — sem entrada manual de produção de ovos neste protótipo).">
+        <Table
+          columns={[
+            { key: "nome", label: "Produto" },
+            { key: "unidade", label: "Unidade" },
+            { key: "vendido", label: "Saída (vendas)", render: (r) => (saldoVendido[r.id] || 0).toLocaleString("pt-BR") },
+            { key: "valorEstoque", label: "Custo unitário", render: (r) => brl(r.custoUnit) },
+          ]}
+          rows={produtos}
+        />
+      </Card>
+      <Card title="Estoque de ração produzida">
+        <div style={{ fontSize: 22, fontWeight: 800, color: GREEN }}>{racaoProduzida.toLocaleString("pt-BR")} kg</div>
+        <div style={{ fontSize: 12.5, color: MUTED }}>Total produzido registrado no módulo Fábrica de Ração.</div>
+      </Card>
+    </div>
+  );
+}
+
+/* ---------------- Fábrica de Ração ---------------- */
+
+function FabricaRacao({ db, update, filialId }) {
+  const formulacoes = db.formulacoes.filter((f) => f.filialId === filialId);
+  const producoes = db.producoesRacao.filter((p) => p.filialId === filialId);
+
+  const [ingredientes, setIngredientes] = useState([{ nome: "", percentual: "", custoKg: "" }]);
+  const [nomeFormula, setNomeFormula] = useState("");
+
+  function addLinha() { setIngredientes([...ingredientes, { nome: "", percentual: "", custoKg: "" }]); }
+  function updLinha(i, patch) { setIngredientes(ingredientes.map((l, idx) => (idx === i ? { ...l, ...patch } : l))); }
+  function removeLinha(i) { setIngredientes(ingredientes.filter((_, idx) => idx !== i)); }
+
+  function salvarFormula(e) {
+    e.preventDefault();
+    update((prev) => ({ ...prev, formulacoes: [...prev.formulacoes, { id: uid(), filialId, nome: nomeFormula, ingredientes }] }));
+    setNomeFormula(""); setIngredientes([{ nome: "", percentual: "", custoKg: "" }]);
+  }
+
+  const custoKgFormula = (f) => f.ingredientes.reduce((s, i) => s + (Number(i.percentual || 0) / 100) * Number(i.custoKg || 0), 0);
+
+  const [prod, setProd] = useState({ data: todayISO(), formulacaoId: "", qtdKg: "" });
+  function lancarProducao(e) {
+    e.preventDefault();
+    const formula = formulacoes.find((f) => f.id === prod.formulacaoId);
+    const custoTotal = formula ? custoKgFormula(formula) * Number(prod.qtdKg || 0) : 0;
+    update((prev) => ({ ...prev, producoesRacao: [...prev.producoesRacao, { id: uid(), filialId, ...prod, qtdKg: Number(prod.qtdKg), custoTotal }] }));
+    setProd({ data: todayISO(), formulacaoId: "", qtdKg: "" });
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <Card title="Nova formulação" subtitle="Cadastre os ingredientes e o percentual de cada um na mistura.">
+        <form onSubmit={salvarFormula} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          <Field label="Nome da formulação"><TextInput value={nomeFormula} onChange={(e) => setNomeFormula(e.target.value)} /></Field>
+          {ingredientes.map((ing, i) => (
+            <div key={i} style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr auto", gap: 10 }}>
+              <TextInput placeholder="Ingrediente (ex: milho)" value={ing.nome} onChange={(e) => updLinha(i, { nome: e.target.value })} />
+              <TextInput placeholder="% na mistura" type="number" value={ing.percentual} onChange={(e) => updLinha(i, { percentual: e.target.value })} />
+              <TextInput placeholder="Custo/kg (R$)" type="number" step="0.01" value={ing.custoKg} onChange={(e) => updLinha(i, { custoKg: e.target.value })} />
+              <Button type="button" variant="danger" onClick={() => removeLinha(i)}>×</Button>
             </div>
-            
-        </section>
-
-        <!-- MAIN DASHBOARD SCREENS -->
-        <section class="flex-grow flex flex-col gap-6 w-full">
-            
-            <!-- VIEW 1: OVERVIEW SCREEN -->
-            <div id="tab-overview" class="flex flex-col gap-6">
-                
-                <!-- Financial Cards Summary -->
-                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                    <div class="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm flex flex-col justify-between">
-                        <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider block mb-1">Orçamento Geral (Budgets)</span>
-                        <span class="text-2xl font-extrabold text-slate-900" id="card-total-budgeted">$1,894,660.00</span>
-                        <div class="mt-2 text-xs text-slate-500 flex items-center gap-1">
-                            <span class="text-emerald-500 font-bold">&#8593; 7 Propriedades</span> em desenvolvimento
-                        </div>
-                    </div>
-                    <div class="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm flex flex-col justify-between">
-                        <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider block mb-1">Liberado pelo Banco</span>
-                        <span class="text-2xl font-extrabold text-blue-600" id="card-total-authorized">$786,651.88</span>
-                        <div class="mt-2 text-xs text-slate-500">
-                            Equivale a <span class="font-semibold text-blue-600" id="card-progress-percentage">41.52%</span> do total orçado
-                        </div>
-                    </div>
-                    <div class="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm flex flex-col justify-between">
-                        <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider block mb-1">Falta Banco Desembolsar</span>
-                        <span class="text-2xl font-extrabold text-amber-500" id="card-total-available">$1,108,008.12</span>
-                        <div class="mt-2 text-xs text-slate-500">
-                            Saldo restante em andamento
-                        </div>
-                    </div>
-                    <div class="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm flex flex-col justify-between">
-                        <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider block mb-1">Média de Conclusão Física</span>
-                        <span class="text-2xl font-extrabold text-emerald-500" id="card-avg-completion">41.61%</span>
-                        <div class="mt-2 w-full bg-slate-100 rounded-full h-1.5 overflow-hidden">
-                            <div class="bg-emerald-500 h-full rounded-full transition-all" style="width: 41.61%"></div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- CASHFLOW AUDITOR SECTION -->
-                <div class="bg-white p-6 rounded-3xl border border-slate-200/80 shadow-sm">
-                    <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
-                        <div>
-                            <h2 class="text-lg font-bold text-slate-900">Auditoria de Caixa e Exposição do Investidor</h2>
-                            <p class="text-xs text-slate-500">Como o capital investido se comporta comparado às vistorias e liberações do banco</p>
-                        </div>
-                        <div class="bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-100 text-[11px] font-semibold text-slate-600">
-                            Última atualização: Junho 2026
-                        </div>
-                    </div>
-
-                    <div class="grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
-                        <div class="lg:col-span-5 space-y-4">
-                            
-                            <!-- Box: Exposição -->
-                            <div class="bg-amber-50/60 p-4 rounded-xl border border-amber-100">
-                                <span class="text-[10px] uppercase font-bold tracking-wider text-amber-800 block">Sua Exposição Líquida Atual</span>
-                                <span class="text-3xl font-extrabold text-amber-600 tracking-tight block mt-1">$613,314.00</span>
-                                <p class="text-xs text-amber-700/80 mt-2 leading-relaxed">
-                                    Este é o seu capital próprio atualmente investido diretamente nas obras que ainda não retornou para a sua conta por meio de reembolsos bancários.
-                                </p>
-                            </div>
-
-                            <!-- Box: Trâmite -->
-                            <div class="bg-blue-50/60 p-4 rounded-xl border border-blue-100">
-                                <span class="text-[10px] uppercase font-bold tracking-wider text-blue-800 block">Diferença em Trâmite / Retenção</span>
-                                <span class="text-2xl font-extrabold text-blue-700 tracking-tight block mt-1">$172,015.88</span>
-                                <p class="text-xs text-blue-700/80 mt-1.5 leading-relaxed">
-                                    O banco já aprovou <strong>$786,651.88</strong> nas planilhas de vistoria, mas você só recebeu <strong>$614,636.00</strong> em conta. Este saldo representa vistorias recém-aprovadas ou retenções de garantia (holdbacks) do banco.
-                                </p>
-                            </div>
-
-                        </div>
-
-                        <!-- Gráfico de Auditoria -->
-                        <div class="lg:col-span-7 h-72">
-                            <canvas id="cashflow-chart"></canvas>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- PROPRIEDADES LIST (Visão Geral) -->
-                <div class="bg-white rounded-3xl border border-slate-200/80 shadow-sm overflow-hidden">
-                    <div class="p-6 border-b border-slate-100">
-                        <h2 class="text-lg font-bold text-slate-900">Painel Comparativo das Casas</h2>
-                        <p class="text-xs text-slate-500">Acompanhamento e ranking de progresso de cada endereço ativo</p>
-                    </div>
-
-                    <div class="overflow-x-auto">
-                        <table class="w-full text-left border-collapse">
-                            <thead>
-                                <tr class="bg-slate-50 text-[10px] uppercase font-bold text-slate-500 tracking-wider">
-                                    <th class="py-3.5 px-6">Endereço da Casa</th>
-                                    <th class="py-3.5 px-6">Orçamento Fixo (Budget)</th>
-                                    <th class="py-3.5 px-6">Desembolso Banco (Pago)</th>
-                                    <th class="py-3.5 px-6">Falta Banco Desembolsar</th>
-                                    <th class="py-3.5 px-6">Progresso Físico</th>
-                                    <th class="py-3.5 px-6 text-right">Ação</th>
-                                </tr>
-                            </thead>
-                            <tbody class="divide-y divide-slate-100 text-sm text-slate-700" id="overview-properties-table">
-                                <!-- Loaded dynamically via JS -->
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-
-            </div>
-
-            <!-- VIEW 2: DETAILS SCREEN -->
-            <div id="tab-details" class="hidden flex flex-col gap-6">
-                
-                <!-- Property Selector and Export Row -->
-                <div class="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm flex flex-col sm:flex-row justify-between items-center gap-4 no-print">
-                    <div class="flex items-center gap-3 w-full sm:w-auto">
-                        <label for="house-select" class="text-sm font-bold text-slate-500 shrink-0">Visualizar Casa:</label>
-                        <select id="house-select" onchange="onHouseChange()" class="w-full sm:w-64 bg-slate-50 border border-slate-200 text-slate-800 text-sm font-semibold py-2 px-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
-                            <!-- Populated dynamically -->
-                        </select>
-                    </div>
-                    
-                    <button onclick="window.print()" class="w-full sm:w-auto flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm px-5 py-2.5 rounded-xl shadow-lg shadow-blue-500/10 transition">
-                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"></path>
-                        </svg>
-                        <span>Imprimir Análise de Caixa</span>
-                    </button>
-                </div>
-
-                <!-- Print Header (Hidden on screen, shown in print) -->
-                <div class="hidden print:block border-b-2 border-slate-950 pb-4 mb-4">
-                    <div class="flex justify-between items-center">
-                        <div>
-                            <h1 class="text-2xl font-black text-slate-900">BuildTrack AI</h1>
-                            <p class="text-sm font-bold text-slate-600">Relatório Executivo de Auditoria do Caixa</p>
-                        </div>
-                        <div class="text-right text-xs text-slate-500">
-                            <p class="font-bold">Gerado em: <span id="print-date">2026-06-29</span></p>
-                            <p>Análise de Pendências de Obras</p>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Specific House Financial cards -->
-                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div class="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm flex flex-col justify-between">
-                        <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider block">Orçamento (Budget)</span>
-                        <span class="text-2xl font-extrabold text-slate-900 mt-1" id="detail-card-budgeted">$0.00</span>
-                        <div class="mt-2 text-xs text-slate-500">
-                            Custo de obra estimado contratual
-                        </div>
-                    </div>
-                    <div class="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm flex flex-col justify-between">
-                        <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider block">Liberado pelo Banco</span>
-                        <span class="text-2xl font-extrabold text-emerald-600 mt-1" id="detail-card-authorized">$0.00</span>
-                        <div class="mt-2 text-xs text-slate-500">
-                            Etapas físicas validadas e pagas
-                        </div>
-                    </div>
-                    <div class="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm flex flex-col justify-between">
-                        <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider block">Falta o Banco Liberar</span>
-                        <span class="text-2xl font-extrabold text-amber-500 mt-1" id="detail-card-available">$0.00</span>
-                        <div class="mt-2 text-xs text-slate-500">
-                            Equivale à parte que falta fazer
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Thermometer of completion -->
-                <div class="bg-white p-6 rounded-3xl border border-slate-200/80 shadow-sm">
-                    <div class="flex justify-between items-center mb-3">
-                        <h3 class="text-sm font-bold text-slate-800 uppercase tracking-wider">Progresso de Execução Física Auditada</h3>
-                        <span class="text-lg font-extrabold text-emerald-500" id="detail-thermometer-pct">0%</span>
-                    </div>
-                    <div class="w-full bg-slate-100 rounded-full h-4 overflow-hidden p-0.5 border border-slate-200/30">
-                        <div id="detail-thermometer-bar" class="bg-emerald-500 h-full rounded-full transition-all duration-700" style="width: 0%"></div>
-                    </div>
-                    <p class="text-xs text-slate-500 mt-2.5">
-                        Este termômetro indica a proporção de etapas que já foram <strong class="text-slate-700">100% finalizadas</strong> ou que já receberam aprovação de liberação pelo banco inspector.
-                    </p>
-                </div>
-
-                <!-- Pending Items Details List -->
-                <div class="bg-white rounded-3xl border border-slate-200/80 shadow-sm overflow-hidden">
-                    <div class="p-6 border-b border-slate-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 no-print">
-                        <div>
-                            <h2 class="text-lg font-bold text-slate-900" id="detail-list-title">Itens Pendentes e Orçado</h2>
-                            <p class="text-xs text-slate-500">Lista completa com descrições originais em inglês conforme a planilha do budget</p>
-                        </div>
-                        
-                        <!-- Toggle Filters -->
-                        <div class="flex items-center gap-2 bg-slate-100 p-1 rounded-lg text-xs font-semibold">
-                            <button onclick="setDetailFilter('all')" id="btn-filter-all" class="px-3 py-1.5 rounded-md bg-white text-slate-800 shadow-sm">Todos</button>
-                            <button onclick="setDetailFilter('pending')" id="btn-filter-pending" class="px-3 py-1.5 rounded-md text-slate-600 hover:text-slate-800 transition">Apenas Pendentes</button>
-                        </div>
-                    </div>
-
-                    <!-- Printed-only header (hidden on screen) -->
-                    <div class="hidden print:block p-4 bg-slate-100 border-b border-slate-200 text-sm font-bold">
-                        Lista completa de itens de obra e saldos em aberto para liberação bancária (USD)
-                    </div>
-
-                    <div class="overflow-x-auto">
-                        <table class="w-full text-left border-collapse">
-                            <thead>
-                                <tr class="bg-slate-50 text-[10px] uppercase font-bold text-slate-500 tracking-wider border-b border-slate-100">
-                                    <th class="py-3 px-6">Sequence</th>
-                                    <th class="py-3 px-6">Description (Nome no Excel)</th>
-                                    <th class="py-3 px-6 text-right">Budgeted (Orçado)</th>
-                                    <th class="py-3 px-6 text-right">Prev. Authorized (Liberado)</th>
-                                    <th class="py-3 px-6 text-right">Available (Falta Liberar)</th>
-                                    <th class="py-3 px-6 text-center">% Funded</th>
-                                </tr>
-                            </thead>
-                            <tbody class="divide-y divide-slate-100 text-sm text-slate-700" id="detail-items-table-body">
-                                <!-- Loaded dynamically via JS -->
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-
-                <!-- Practical explanation box for leigos -->
-                <div class="bg-blue-50/40 p-6 rounded-3xl border border-blue-100 leading-relaxed text-sm text-blue-800">
-                    <h4 class="font-bold mb-2 flex items-center gap-1.5 text-blue-900">
-                        <svg class="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-                        </svg>
-                        <span>O que falta fazer na obra para liberar esse dinheiro?</span>
-                    </h4>
-                    <p class="text-xs text-blue-700">
-                        Para liberar o saldo restante, o empreiteiro deve concluir as etapas com saldos <strong class="text-slate-800">Available</strong> acima de $0. O banco vistoria as conclusões e autoriza mais depósitos. Itens com <strong>100% Funded</strong> indicam etapas totalmente pagas e concluídas pelo construtor.
-                    </p>
-                </div>
-
-            </div>
-
-        </section>
-    </main>
-
-    <!-- JAVASCRIPT LOGIC AND CORE DATA IN MEMORY -->
-    <script>
-        // BASE DATA COPIED DIRECTLY FROM THE SOURCE EXCEL BUDGETS
-        const initialPortfolio = {
-            "1462 Dufferin Ave": [
-                {seq: 1, desc: "Project/Site Management", budgeted: 5500, authorized: 2365, available: 3135, pct: 43},
-                {seq: 2, desc: "Site Prep: Grading/Excavation", budgeted: 8700, authorized: 8700, available: 0, pct: 100},
-                {seq: 3, desc: "Ground Elevation", budgeted: 18100, authorized: 18100, available: 0, pct: 100},
-                {seq: 4, desc: "Foundation", budgeted: 27300, authorized: 27300, available: 0, pct: 100},
-                {seq: 5, desc: "Steam Wall", budgeted: 1500, authorized: 1500, available: 0, pct: 100},
-                {seq: 6, desc: "Masonry & Framing", budgeted: 14900, authorized: 14155, available: 745, pct: 95},
-                {seq: 7, desc: "Roof (including soffit/fascia & gutters)", budgeted: 10200, authorized: 5100, available: 5100, pct: 50},
-                {seq: 8, desc: "Exterior/Siding/Stucco", budgeted: 9200, authorized: 0, available: 9200, pct: 0},
-                {seq: 9, desc: "Windows/Exterior Doors", budgeted: 6100, authorized: 0, available: 6100, pct: 0},
-                {seq: 10, desc: "Plumbing - Rough", budgeted: 9500, authorized: 9500, available: 0, pct: 100},
-                {seq: 11, desc: "Plumbing - Finish", budgeted: 3600, authorized: 0, available: 3600, pct: 0},
-                {seq: 12, desc: "Electrical - Rough", budgeted: 9400, authorized: 8650, available: 750, pct: 92},
-                {seq: 13, desc: "Electrical  - Finish/Fixtures", budgeted: 2700, authorized: 0, available: 2700, pct: 0},
-                {seq: 14, desc: "HVAC - Rough", budgeted: 10800, authorized: 10800, available: 0, pct: 100},
-                {seq: 15, desc: "HVAC - Finish", budgeted: 3000, authorized: 0, available: 3000, pct: 0},
-                {seq: 16, desc: "Insulation/Drywall", budgeted: 8900, authorized: 0, available: 8900, pct: 0},
-                {seq: 17, desc: "Interior Doors/Trim", budgeted: 4200, authorized: 0, available: 4200, pct: 0},
-                {seq: 18, desc: "Paint", budgeted: 6200, authorized: 0, available: 6200, pct: 0},
-                {seq: 19, desc: "Flooring", budgeted: 4500, authorized: 0, available: 4500, pct: 0},
-                {seq: 20, desc: "Kitchen - Cabinets", budgeted: 17300, authorized: 0, available: 17300, pct: 0},
-                {seq: 21, desc: "Kitchen - Countertops", budgeted: 7300, authorized: 0, available: 7300, pct: 0},
-                {seq: 22, desc: "Kitchen - Tile Work", budgeted: 1200, authorized: 0, available: 1200, pct: 0},
-                {seq: 23, desc: "Kitchen - Appliances", budgeted: 1800, authorized: 0, available: 1800, pct: 0},
-                {seq: 24, desc: "Septic Tank / Well", budgeted: 25500, authorized: 0, available: 25500, pct: 0},
-                {seq: 25, desc: "Bathroom - Tile Work", budgeted: 2300, authorized: 0, available: 2300, pct: 0},
-                {seq: 26, desc: "Bathrooom - Vanities", budgeted: 8900, authorized: 0, available: 8900, pct: 0},
-                {seq: 27, desc: "Bathroom - Fixtures", budgeted: 700, authorized: 0, available: 700, pct: 0},
-                {seq: 28, desc: "Pavers Driveway", budgeted: 8900, authorized: 0, available: 8900, pct: 0},
-                {seq: 29, desc: "Landscaping", budgeted: 6300, authorized: 0, available: 6300, pct: 0},
-                {seq: 30, desc: "Final Clean", budgeted: 400, authorized: 0, available: 400, pct: 0},
-                {seq: 31, desc: "Contingency", budgeted: 15260, authorized: 6561.80, available: 8698.20, pct: 43}
-            ],
-            "3245 Pericles Ave": [
-                {seq: 1, desc: "Project/Site Management", budgeted: 5500, authorized: 3205, available: 2295, pct: 58.27},
-                {seq: 2, desc: "Site Prep: Grading/Excavation", budgeted: 8700, authorized: 8700, available: 0, pct: 100},
-                {seq: 3, desc: "Ground Elevation", budgeted: 18100, authorized: 18100, available: 0, pct: 100},
-                {seq: 4, desc: "Foundation", budgeted: 27300, authorized: 27300, available: 0, pct: 100},
-                {seq: 5, desc: "Steam Wall", budgeted: 1500, authorized: 1500, available: 0, pct: 100},
-                {seq: 6, desc: "Masonry & Framing", budgeted: 14900, authorized: 14155, available: 745, pct: 95},
-                {seq: 7, desc: "Roof (including soffit/fascia & gutters)", budgeted: 10200, authorized: 8200, available: 2000, pct: 80.39},
-                {seq: 8, desc: "Exterior/Siding/Stucco", budgeted: 9200, authorized: 0, available: 9200, pct: 0},
-                {seq: 9, desc: "Windows/Exterior Doors", budgeted: 6100, authorized: 4575, available: 1525, pct: 75},
-                {seq: 10, desc: "Plumbing - Rough", budgeted: 9500, authorized: 9500, available: 0, pct: 100},
-                {seq: 11, desc: "Plumbing - Finish", budgeted: 3600, authorized: 0, available: 3600, pct: 0},
-                {seq: 12, desc: "Electrical - Rough", budgeted: 9400, authorized: 8930, available: 470, pct: 95},
-                {seq: 13, desc: "Electrical  - Finish/Fixtures", budgeted: 2700, authorized: 0, available: 2700, pct: 0},
-                {seq: 14, desc: "HVAC - Rough", budgeted: 10800, authorized: 10800, available: 0, pct: 100},
-                {seq: 15, desc: "HVAC - Finish", budgeted: 3000, authorized: 0, available: 3000, pct: 0},
-                {seq: 16, desc: "Insulation/Drywall", budgeted: 8900, authorized: 0, available: 8900, pct: 0},
-                {seq: 17, desc: "Interior Doors/Trim", budgeted: 4200, authorized: 0, available: 4200, pct: 0},
-                {seq: 18, desc: "Paint", budgeted: 6200, authorized: 0, available: 6200, pct: 0},
-                {seq: 19, desc: "Flooring", budgeted: 4500, authorized: 0, available: 4500, pct: 0},
-                {seq: 20, desc: "Kitchen - Cabinets", budgeted: 14800, authorized: 0, available: 14800, pct: 0},
-                {seq: 21, desc: "Kitchen - Countertops", budgeted: 7300, authorized: 0, available: 7300, pct: 0},
-                {seq: 22, desc: "Kitchen - Tile Work", budgeted: 1200, authorized: 0, available: 1200, pct: 0},
-                {seq: 23, desc: "Kitchen - Appliances", budgeted: 1800, authorized: 0, available: 1800, pct: 0},
-                {seq: 24, desc: "Septic Tank / Well", budgeted: 25500, authorized: 0, available: 25500, pct: 0},
-                {seq: 25, desc: "Bathroom - Tile Work", budgeted: 2300, authorized: 0, available: 2300, pct: 0},
-                {seq: 26, desc: "Bathrooom - Vanities", budgeted: 8400, authorized: 0, available: 8400, pct: 0},
-                {seq: 27, desc: "Bathroom - Fixtures", budgeted: 700, authorized: 0, available: 700, pct: 0},
-                {seq: 28, desc: "Pavers Driveway", budgeted: 7900, authorized: 0, available: 7900, pct: 0},
-                {seq: 29, desc: "Landscaping", budgeted: 5300, authorized: 0, available: 5300, pct: 0},
-                {seq: 30, desc: "Final Clean", budgeted: 400, authorized: 0, available: 400, pct: 0},
-                {seq: 31, desc: "Contingency", budgeted: 24440, authorized: 11413.48, available: 13026.52, pct: 46.7}
-            ],
-            "3265 Pericles Ave": [
-                {seq: 1, desc: "Project/Site Management", budgeted: 5500, authorized: 3080, available: 2420, pct: 56},
-                {seq: 2, desc: "Site Prep: Grading/Excavation", budgeted: 8700, authorized: 8700, available: 0, pct: 100},
-                {seq: 3, desc: "Ground Elevation", budgeted: 18100, authorized: 18100, available: 0, pct: 100},
-                {seq: 4, desc: "Foundation", budgeted: 27300, authorized: 27300, available: 0, pct: 100},
-                {seq: 5, desc: "Steam Wall", budgeted: 1500, authorized: 1500, available: 0, pct: 100},
-                {seq: 6, desc: "Masonry & Framing", budgeted: 14900, authorized: 14155, available: 745, pct: 95},
-                {seq: 7, desc: "Roof (including soffit/fascia & gutters)", budgeted: 10200, authorized: 8200, available: 2000, pct: 80.39},
-                {seq: 8, desc: "Exterior/Siding/Stucco", budgeted: 9200, authorized: 0, available: 9200, pct: 0},
-                {seq: 9, desc: "Windows/Exterior Doors", budgeted: 6100, authorized: 4575, available: 1525, pct: 75},
-                {seq: 10, desc: "Plumbing - Rough", budgeted: 9500, authorized: 9500, available: 0, pct: 100},
-                {seq: 11, desc: "Plumbing - Finish", budgeted: 3600, authorized: 0, available: 3600, pct: 0},
-                {seq: 12, desc: "Electrical - Rough", budgeted: 9400, authorized: 9400, available: 0, pct: 100},
-                {seq: 13, desc: "Electrical  - Finish/Fixtures", budgeted: 2700, authorized: 0, available: 2700, pct: 0},
-                {seq: 14, desc: "HVAC - Rough", budgeted: 10800, authorized: 10800, available: 0, pct: 100},
-                {seq: 15, desc: "HVAC - Finish", budgeted: 3000, authorized: 0, available: 3000, pct: 0},
-                {seq: 16, desc: "Insulation/Drywall", budgeted: 8900, authorized: 0, available: 8900, pct: 0},
-                {seq: 17, desc: "Interior Doors/Trim", budgeted: 4200, authorized: 0, available: 4200, pct: 0},
-                {seq: 18, desc: "Paint", budgeted: 6200, authorized: 0, available: 6200, pct: 0},
-                {seq: 19, desc: "Flooring", budgeted: 4500, authorized: 0, available: 4500, pct: 0},
-                {seq: 20, desc: "Kitchen - Cabinets", budgeted: 17300, authorized: 0, available: 17300, pct: 0},
-                {seq: 21, desc: "Kitchen - Countertops", budgeted: 7300, authorized: 0, available: 7300, pct: 0},
-                {seq: 22, desc: "Kitchen - Tile Work", budgeted: 1200, authorized: 0, available: 1200, pct: 0},
-                {seq: 23, desc: "Kitchen - Appliances", budgeted: 1800, authorized: 0, available: 1800, pct: 0},
-                {seq: 24, desc: "Septic Tank / Well", budgeted: 25500, authorized: 0, available: 25500, pct: 0},
-                {seq: 25, desc: "Bathroom - Tile Work", budgeted: 2300, authorized: 0, available: 2300, pct: 0},
-                {seq: 26, desc: "Bathrooom - Vanities", budgeted: 8900, authorized: 0, available: 8900, pct: 0},
-                {seq: 27, desc: "Bathroom - Fixtures", budgeted: 700, authorized: 0, available: 700, pct: 0},
-                {seq: 28, desc: "Pavers Driveway", budgeted: 8900, authorized: 0, available: 8900, pct: 0},
-                {seq: 29, desc: "Landscaping", budgeted: 6300, authorized: 0, available: 6300, pct: 0},
-                {seq: 30, desc: "Final Clean", budgeted: 400, authorized: 0, available: 400, pct: 0},
-                {seq: 31, desc: "Contingency", budgeted: 24940, authorized: 11472.40, available: 13467.60, pct: 46}
-            ],
-            "5126 Aberback St": [
-                {seq: 1, desc: "Project/Site Management", budgeted: 5500, authorized: 1540, available: 3960, pct: 28},
-                {seq: 2, desc: "Site Prep: Grading/Excavation", budgeted: 8700, authorized: 8700, available: 0, pct: 100},
-                {seq: 3, desc: "Ground Elevation", budgeted: 18100, authorized: 18100, available: 0, pct: 100},
-                {seq: 4, desc: "Foundation", budgeted: 27300, authorized: 27300, available: 0, pct: 100},
-                {seq: 5, desc: "Steam Wall", budgeted: 1500, authorized: 1500, available: 0, pct: 100},
-                {seq: 6, desc: "Masonry & Framing", budgeted: 14900, authorized: 14155, available: 745, pct: 95},
-                {seq: 7, desc: "Roof (including soffit/fascia & gutters)", budgeted: 10200, authorized: 4080, available: 6120, pct: 40},
-                {seq: 8, desc: "Exterior/Siding/Stucco", budgeted: 9200, authorized: 0, available: 9200, pct: 0},
-                {seq: 9, desc: "Windows/Exterior Doors", budgeted: 6100, authorized: 0, available: 6100, pct: 0},
-                {seq: 10, desc: "Plumbing - Rough", budgeted: 9500, authorized: 0, available: 9500, pct: 0},
-                {seq: 11, desc: "Plumbing - Finish", budgeted: 3600, authorized: 0, available: 3600, pct: 0},
-                {seq: 12, desc: "Electrical - Rough", budgeted: 9400, authorized: 0, available: 9400, pct: 0},
-                {seq: 13, desc: "Electrical  - Finish/Fixtures", budgeted: 2700, authorized: 0, available: 2700, pct: 0},
-                {seq: 14, desc: "HVAC - Rough", budgeted: 10800, authorized: 0, available: 10800, pct: 0},
-                {seq: 15, desc: "HVAC - Finish", budgeted: 3000, authorized: 0, available: 3000, pct: 0},
-                {seq: 16, desc: "Insulation/Drywall", budgeted: 8900, authorized: 0, available: 8900, pct: 0},
-                {seq: 17, desc: "Interior Doors/Trim", budgeted: 4200, authorized: 0, available: 4200, pct: 0},
-                {seq: 18, desc: "Paint", budgeted: 6200, authorized: 0, available: 6200, pct: 0},
-                {seq: 19, desc: "Flooring", budgeted: 4500, authorized: 0, available: 4500, pct: 0},
-                {seq: 20, desc: "Kitchen - Cabinets", budgeted: 17300, authorized: 0, available: 17300, pct: 0},
-                {seq: 21, desc: "Kitchen - Countertops", budgeted: 7300, authorized: 0, available: 7300, pct: 0},
-                {seq: 22, desc: "Kitchen - Tile Work", budgeted: 1200, authorized: 0, available: 1200, pct: 0},
-                {seq: 23, desc: "Kitchen - Appliances", budgeted: 1800, authorized: 0, available: 1800, pct: 0},
-                {seq: 24, desc: "Septic Tank / Well", budgeted: 25500, authorized: 0, available: 25500, pct: 0},
-                {seq: 25, desc: "Bathroom - Tile Work", budgeted: 2300, authorized: 0, available: 2300, pct: 0},
-                {seq: 26, desc: "Bathrooom - Vanities", budgeted: 8900, authorized: 0, available: 8900, pct: 0},
-                {seq: 27, desc: "Bathroom - Fixtures", budgeted: 700, authorized: 0, available: 700, pct: 0},
-                {seq: 28, desc: "Pavers Driveway", budgeted: 8900, authorized: 0, available: 8900, pct: 0},
-                {seq: 29, desc: "Landscaping", budgeted: 6300, authorized: 0, available: 6300, pct: 0},
-                {seq: 30, desc: "Final Clean", budgeted: 400, authorized: 0, available: 400, pct: 0},
-                {seq: 31, desc: "Contingency", budgeted: 26040, authorized: 7291.20, available: 18748.80, pct: 28}
-            ],
-            "5674 Gadshaw Ave": [
-                {seq: 1, desc: "Project/Site Management", budgeted: 5500, authorized: 1210, available: 4290, pct: 22},
-                {seq: 2, desc: "Site Prep: Grading/Excavation", budgeted: 8700, authorized: 8700, available: 0, pct: 100},
-                {seq: 3, desc: "Ground Elevation", budgeted: 18100, authorized: 18100, available: 0, pct: 100},
-                {seq: 4, desc: "Foundation", budgeted: 27300, authorized: 27300, available: 0, pct: 100},
-                {seq: 5, desc: "Steam Wall", budgeted: 1500, authorized: 1500, available: 0, pct: 100},
-                {seq: 6, desc: "Masonry & Framing", budgeted: 14900, authorized: 0, available: 14900, pct: 0},
-                {seq: 7, desc: "Roof (including soffit/fascia & gutters)", budgeted: 10200, authorized: 0, available: 10200, pct: 0},
-                {seq: 8, desc: "Exterior/Siding/Stucco", budgeted: 9200, authorized: 0, available: 9200, pct: 0},
-                {seq: 9, desc: "Windows/Exterior Doors", budgeted: 6100, authorized: 0, available: 6100, pct: 0},
-                {seq: 10, desc: "Plumbing - Rough", budgeted: 9500, authorized: 0, available: 9500, pct: 0},
-                {seq: 11, desc: "Plumbing - Finish", budgeted: 3600, authorized: 0, available: 3600, pct: 0},
-                {seq: 12, desc: "Electrical - Rough", budgeted: 9400, authorized: 1000, available: 8400, pct: 11},
-                {seq: 13, desc: "Electrical  - Finish/Fixtures", budgeted: 2700, authorized: 0, available: 2700, pct: 0},
-                {seq: 14, desc: "HVAC - Rough", budgeted: 10800, authorized: 0, available: 10800, pct: 0},
-                {seq: 15, desc: "HVAC - Finish", budgeted: 3000, authorized: 0, available: 3000, pct: 0},
-                {seq: 16, desc: "Insulation/Drywall", budgeted: 8900, authorized: 0, available: 8900, pct: 0},
-                {seq: 17, desc: "Interior Doors/Trim", budgeted: 4200, authorized: 0, available: 4200, pct: 0},
-                {seq: 18, desc: "Paint", budgeted: 6200, authorized: 0, available: 6200, pct: 0},
-                {seq: 19, desc: "Flooring", budgeted: 4500, authorized: 0, available: 4500, pct: 0},
-                {seq: 20, desc: "Kitchen - Cabinets", budgeted: 17300, authorized: 0, available: 17300, pct: 0},
-                {seq: 21, desc: "Kitchen - Countertops", budgeted: 7300, authorized: 0, available: 7300, pct: 0},
-                {seq: 22, desc: "Kitchen - Tile Work", budgeted: 1200, authorized: 0, available: 1200, pct: 0},
-                {seq: 23, desc: "Kitchen - Appliances", budgeted: 1800, authorized: 0, available: 1800, pct: 0},
-                {seq: 24, desc: "Septic Tank / Well", budgeted: 25500, authorized: 0, available: 25500, pct: 0},
-                {seq: 25, desc: "Bathroom - Tile Work", budgeted: 2300, authorized: 0, available: 2300, pct: 0},
-                {seq: 26, desc: "Bathrooom - Vanities", budgeted: 8900, authorized: 0, available: 8900, pct: 0},
-                {seq: 27, desc: "Bathroom - Fixtures", budgeted: 700, authorized: 0, available: 700, pct: 0},
-                {seq: 28, desc: "Pavers Driveway", budgeted: 8900, authorized: 0, available: 8900, pct: 0},
-                {seq: 29, desc: "Landscaping", budgeted: 6300, authorized: 0, available: 6300, pct: 0},
-                {seq: 30, desc: "Final Clean", budgeted: 400, authorized: 0, available: 400, pct: 0},
-                {seq: 31, desc: "Contingency", budgeted: 25040, authorized: 4000, available: 21040, pct: 16}
-            ],
-            "7327 Cameo Cir": [
-                {seq: 1, desc: "Project/Site Management", budgeted: 5500, authorized: 2420, available: 3080, pct: 44},
-                {seq: 2, desc: "Site Prep: Grading/Excavation", budgeted: 8700, authorized: 8700, available: 0, pct: 100},
-                {seq: 3, desc: "Ground Elevation", budgeted: 18100, authorized: 18100, available: 0, pct: 100},
-                {seq: 4, desc: "Foundation", budgeted: 27300, authorized: 27300, available: 0, pct: 100},
-                {seq: 5, desc: "Steam Wall", budgeted: 1500, authorized: 1500, available: 0, pct: 100},
-                {seq: 6, desc: "Masonry & Framing", budgeted: 14900, authorized: 14155, available: 745, pct: 95},
-                {seq: 7, desc: "Roof (including soffit/fascia & gutters)", budgeted: 10200, authorized: 8670, available: 1530, pct: 85},
-                {seq: 8, desc: "Exterior/Siding/Stucco", budgeted: 9200, authorized: 0, available: 9200, pct: 0},
-                {seq: 9, desc: "Windows/Exterior Doors", budgeted: 6100, authorized: 0, available: 6100, pct: 0},
-                {seq: 10, desc: "Plumbing - Rough", budgeted: 9500, authorized: 8750, available: 750, pct: 92},
-                {seq: 11, desc: "Plumbing - Finish", budgeted: 3600, authorized: 0, available: 3600, pct: 0},
-                {seq: 12, desc: "Electrical - Rough", budgeted: 9400, authorized: 8650, available: 750, pct: 92},
-                {seq: 13, desc: "Electrical  - Finish/Fixtures", budgeted: 2700, authorized: 0, available: 2700, pct: 0},
-                {seq: 14, desc: "HVAC - Rough", budgeted: 10800, authorized: 10050, available: 750, pct: 93},
-                {seq: 15, desc: "HVAC - Finish", budgeted: 3000, authorized: 0, available: 3000, pct: 0},
-                {seq: 16, desc: "Insulation/Drywall", budgeted: 8900, authorized: 0, available: 8900, pct: 0},
-                {seq: 17, desc: "Interior Doors/Trim", budgeted: 4200, authorized: 0, available: 4200, pct: 0},
-                {seq: 18, desc: "Paint", budgeted: 6200, authorized: 0, available: 6200, pct: 0},
-                {seq: 19, desc: "Flooring", budgeted: 4500, authorized: 0, available: 4500, pct: 0},
-                {seq: 20, desc: "Kitchen - Cabinets", budgeted: 14800, authorized: 0, available: 14800, pct: 0},
-                {seq: 21, desc: "Kitchen - Countertops", budgeted: 7300, authorized: 0, available: 7300, pct: 0},
-                {seq: 22, desc: "Kitchen - Tile Work", budgeted: 1200, authorized: 0, available: 1200, pct: 0},
-                {seq: 23, desc: "Kitchen - Appliances", budgeted: 1800, authorized: 0, available: 1800, pct: 0},
-                {seq: 24, desc: "Septic Tank / Well", budgeted: 25500, authorized: 0, available: 25500, pct: 0},
-                {seq: 25, desc: "Bathroom - Tile Work", budgeted: 2300, authorized: 0, available: 2300, pct: 0},
-                {seq: 26, desc: "Bathrooom - Vanities", budgeted: 8400, authorized: 0, available: 8400, pct: 0},
-                {seq: 27, desc: "Bathroom - Fixtures", budgeted: 700, authorized: 0, available: 700, pct: 0},
-                {seq: 28, desc: "Pavers Driveway", budgeted: 7900, authorized: 0, available: 7900, pct: 0},
-                {seq: 29, desc: "Landscaping", budgeted: 5300, authorized: 0, available: 5300, pct: 0},
-                {seq: 30, desc: "Final Clean", budgeted: 400, authorized: 0, available: 400, pct: 0},
-                {seq: 31, desc: "Contingency", budgeted: 23570, authorized: 10370.80, available: 13199.20, pct: 44}
-            ],
-            "7850 Grafton Rd": [
-                {seq: 1, desc: "Project/Site Management", budgeted: 5500, authorized: 2530, available: 2970, pct: 46},
-                {seq: 2, desc: "Site Prep: Grading/Excavation", budgeted: 8700, authorized: 8700, available: 0, pct: 100},
-                {seq: 3, desc: "Ground Elevation", budgeted: 18100, authorized: 18100, available: 0, pct: 100},
-                {seq: 4, desc: "Foundation", budgeted: 27300, authorized: 27300, available: 0, pct: 100},
-                {seq: 5, desc: "Steam Wall", budgeted: 1500, authorized: 1500, available: 0, pct: 100},
-                {seq: 6, desc: "Masonry & Framing", budgeted: 14900, authorized: 14155, available: 745, pct: 95},
-                {seq: 7, desc: "Roof (including soffit/fascia & gutters)", budgeted: 10200, authorized: 8160, available: 2040, pct: 80},
-                {seq: 8, desc: "Exterior/Siding/Stucco", budgeted: 9200, authorized: 0, available: 9200, pct: 0},
-                {seq: 9, desc: "Windows/Exterior Doors", budgeted: 6100, authorized: 4880, available: 1220, pct: 80},
-                {seq: 10, desc: "Plumbing - Rough", budgeted: 9500, authorized: 8750, available: 750, pct: 92},
-                {seq: 11, desc: "Plumbing - Finish", budgeted: 3600, authorized: 0, available: 3600, pct: 0},
-                {seq: 12, desc: "Electrical  - Finish/Fixtures", budgeted: 2700, authorized: 0, available: 2700, pct: 0},
-                {seq: 13, desc: "HVAC - Finish", budgeted: 3000, authorized: 0, available: 3000, pct: 0},
-                {seq: 14, desc: "Insulation/Drywall", budgeted: 8900, authorized: 0, available: 8900, pct: 0},
-                {seq: 15, desc: "Interior Doors/Trim", budgeted: 4200, authorized: 0, available: 4200, pct: 0},
-                {seq: 16, desc: "Paint", budgeted: 6200, authorized: 0, available: 6200, pct: 0},
-                {seq: 17, desc: "Flooring", budgeted: 4500, authorized: 0, available: 4500, pct: 0},
-                {seq: 18, desc: "Kitchen - Cabinets", budgeted: 14800, authorized: 0, available: 14800, pct: 0},
-                {seq: 19, desc: "Kitchen - Countertops", budgeted: 7300, authorized: 0, available: 7300, pct: 0},
-                {seq: 20, desc: "Kitchen - Tile Work", budgeted: 1200, authorized: 0, available: 1200, pct: 0},
-                {seq: 21, desc: "Kitchen - Appliances", budgeted: 1800, authorized: 0, available: 1800, pct: 0},
-                {seq: 22, desc: "Septic Tank / Well", budgeted: 25500, authorized: 0, available: 25500, pct: 0},
-                {seq: 23, desc: "Bathroom - Tile Work", budgeted: 2300, authorized: 0, available: 2300, pct: 0},
-                {seq: 24, desc: "Bathrooom - Vanities", budgeted: 8400, authorized: 0, available: 8400, pct: 0},
-                {seq: 25, desc: "Bathroom - Fixtures", budgeted: 700, authorized: 0, available: 700, pct: 0},
-                {seq: 26, desc: "Pavers Driveway", budgeted: 7900, authorized: 0, available: 7900, pct: 0},
-                {seq: 27, desc: "Landscaping", budgeted: 5300, authorized: 0, available: 5300, pct: 0},
-                {seq: 28, desc: "Final Clean", budgeted: 400, authorized: 0, available: 400, pct: 0},
-                {seq: 29, desc: "Contingency", budgeted: 23570, authorized: 10842.20, available: 12727.80, pct: 46}
-            ]
-        };
-
-        // Static parameters from the investor
-        const globalCashflow = {
-            investorPaid: 1227950.00,
-            bankReceived: 614636.00
-        };
-
-        let activeTab = 'overview';
-        let detailFilter = 'all'; // 'all' or 'pending'
-        let chartInstance = null;
-
-        // Utility to format values nicely
-        function fmtUsd(num) {
-            return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(num);
-        }
-
-        // Calculate portfolio aggregates on the fly
-        function getAggregates() {
-            let totalB = 0;
-            let totalAu = 0;
-            let totalAv = 0;
-            let count = 0;
-            let sumPcts = 0;
-
-            for (const house in initialPortfolio) {
-                const items = initialPortfolio[house];
-                let b = 0, au = 0, av = 0;
-                items.forEach(i => {
-                    b += i.budgeted;
-                    au += i.authorized;
-                    av += i.available;
-                });
-                totalB += b;
-                totalAu += au;
-                totalAv += av;
-                sumPcts += (au / b) * 100;
-                count++;
-            }
-
-            return {
-                totalBudgeted: totalB,
-                totalAuthorized: totalAu,
-                totalAvailable: totalAv,
-                avgCompletion: count > 0 ? (sumPcts / count) : 0
-            };
-        }
-
-        window.onload = function() {
-            initApp();
-        };
-
-        function initApp() {
-            renderSidebarList();
-            renderSelectors();
-            updateDashboardCards();
-            renderOverviewTable();
-            renderAuditChart();
-            renderDetailView();
-        }
-
-        function switchTab(tabId) {
-            activeTab = tabId;
-            document.getElementById('tab-overview').classList.add('hidden');
-            document.getElementById('tab-details').classList.add('hidden');
-            document.getElementById('nav-overview').className = "w-full flex items-center gap-3 px-4 py-3 text-sm font-semibold rounded-xl transition text-slate-600 hover:bg-slate-50";
-            document.getElementById('nav-details').className = "w-full flex items-center gap-3 px-4 py-3 text-sm font-semibold rounded-xl transition text-slate-600 hover:bg-slate-50";
-
-            document.getElementById('tab-' + tabId).classList.remove('hidden');
-            document.getElementById('nav-' + tabId).className = "w-full flex items-center gap-3 px-4 py-3 text-sm font-semibold rounded-xl transition bg-blue-50 text-blue-700";
-            
-            if (tabId === 'overview') {
-                renderAuditChart();
-            } else {
-                renderDetailView();
-            }
-        }
-
-        function updateDashboardCards() {
-            const agg = getAggregates();
-            document.getElementById('card-total-budgeted').innerText = fmtUsd(agg.totalBudgeted);
-            document.getElementById('card-total-authorized').innerText = fmtUsd(agg.totalAuthorized);
-            document.getElementById('card-total-available').innerText = fmtUsd(agg.totalAvailable);
-            
-            const pctText = ((agg.totalAuthorized / agg.totalBudgeted) * 100).toFixed(2) + "%";
-            document.getElementById('card-progress-percentage').innerText = pctText;
-            document.getElementById('card-avg-completion').innerText = agg.avgCompletion.toFixed(2) + "%";
-
-            // Update topbar banner metrics
-            document.getElementById('topbar-total-budget').innerText = fmtUsd(agg.totalBudgeted);
-            document.getElementById('topbar-avg-completion').innerText = agg.avgCompletion.toFixed(2) + "%";
-        }
-
-        function renderSidebarList() {
-            const container = document.getElementById('sidebar-house-list');
-            container.innerHTML = '';
-            
-            for (const name in initialPortfolio) {
-                const items = initialPortfolio[name];
-                let b = 0, au = 0;
-                items.forEach(i => { b += i.budgeted; au += i.authorized; });
-                const pct = ((au / b) * 100).toFixed(0);
-
-                const div = document.createElement('div');
-                div.className = "flex items-center justify-between p-2.5 rounded-lg border border-slate-100 hover:bg-slate-50 cursor-pointer transition text-xs font-semibold";
-                div.onclick = () => {
-                    document.getElementById('house-select').value = name;
-                    switchTab('details');
-                    onHouseChange();
-                };
-                div.innerHTML = `
-                    <div class="truncate pr-2">
-                        <span class="block text-slate-800 font-bold truncate">${name}</span>
-                        <span class="text-[10px] text-slate-400 font-medium">Orçado: ${fmtUsd(b)}</span>
-                    </div>
-                    <span class="px-2 py-0.5 bg-emerald-50 text-emerald-700 rounded-md font-bold">${pct}%</span>
-                `;
-                container.appendChild(div);
-            }
-        }
-
-        function renderSelectors() {
-            const select = document.getElementById('house-select');
-            select.innerHTML = '';
-            for (const name in initialPortfolio) {
-                const opt = document.createElement('optgroup');
-                opt.label = name;
-                const innerOpt = document.createElement('option');
-                innerOpt.value = name;
-                innerOpt.innerText = name;
-                select.appendChild(innerOpt);
-            }
-        }
-
-        function renderOverviewTable() {
-            const tbody = document.getElementById('overview-properties-table');
-            tbody.innerHTML = '';
-
-            for (const name in initialPortfolio) {
-                const items = initialPortfolio[name];
-                let b = 0, au = 0, av = 0;
-                items.forEach(i => { b += i.budgeted; au += i.authorized; av += i.available; });
-                const pct = ((au / b) * 100).toFixed(2);
-
-                const tr = document.createElement('tr');
-                tr.className = "hover:bg-slate-50/50 transition cursor-pointer";
-                tr.onclick = () => {
-                    document.getElementById('house-select').value = name;
-                    switchTab('details');
-                    onHouseChange();
-                };
-                tr.innerHTML = `
-                    <td class="py-4 px-6 font-bold text-slate-900">${name}</td>
-                    <td class="py-4 px-6 font-semibold">${fmtUsd(b)}</td>
-                    <td class="py-4 px-6 font-semibold text-blue-600">${fmtUsd(au)}</td>
-                    <td class="py-4 px-6 font-semibold text-amber-500">${fmtUsd(av)}</td>
-                    <td class="py-4 px-6">
-                        <div class="flex items-center gap-2">
-                            <span class="font-bold text-xs text-slate-600">${pct}%</span>
-                            <div class="w-20 bg-slate-100 rounded-full h-1.5 overflow-hidden">
-                                <div class="bg-blue-600 h-full rounded-full" style="width: ${pct}%"></div>
-                            </div>
-                        </div>
-                    </td>
-                    <td class="py-4 px-6 text-right">
-                        <button class="text-blue-600 hover:text-blue-800 font-bold text-xs flex items-center gap-1 justify-end ml-auto">
-                            <span>Auditar</span>
-                            <span>&rarr;</span>
-                        </button>
-                    </td>
-                `;
-                tbody.appendChild(tr);
-            }
-        }
-
-        function renderAuditChart() {
-            const ctx = document.getElementById('cashflow-chart').getContext('2d');
-            
-            // Get current aggregate total budgeted and authorized
-            const agg = getAggregates();
-
-            if (chartInstance) {
-                chartInstance.destroy();
-            }
-
-            chartInstance = new Chart(ctx, {
-                type: 'bar',
-                data: {
-                    labels: ['Investidor vs Banco', 'Auditoria Geral Budgets'],
-                    datasets: [
-                        {
-                            label: 'Investidor Injetado / Budget Total',
-                            data: [globalCashflow.investorPaid, agg.totalBudgeted],
-                            backgroundColor: '#1e293b',
-                            borderRadius: 8,
-                            borderWidth: 0
-                        },
-                        {
-                            label: 'Banco Reembolsado / Banco Aprovado',
-                            data: [globalCashflow.bankReceived, agg.totalAuthorized],
-                            backgroundColor: '#2563eb',
-                            borderRadius: 8,
-                            borderWidth: 0
-                        }
-                    ]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {
-                        legend: {
-                            position: 'bottom',
-                            labels: {
-                                font: { family: 'Inter', size: 11, weight: '600' }
-                            }
-                        }
-                    },
-                    scales: {
-                        y: {
-                            beginAtZero: true,
-                            ticks: {
-                                callback: function(value) { return fmtUsd(value); },
-                                font: { family: 'Inter', size: 10 }
-                            },
-                            grid: { color: '#f1f5f9' }
-                        },
-                        x: {
-                            ticks: { font: { family: 'Inter', size: 11, weight: '600' } },
-                            grid: { display: false }
-                        }
-                    }
-                }
-            });
-        }
-
-        function setDetailFilter(filter) {
-            detailFilter = filter;
-            document.getElementById('btn-filter-all').className = filter === 'all' 
-                ? "px-3 py-1.5 rounded-md bg-white text-slate-800 shadow-sm" 
-                : "px-3 py-1.5 rounded-md text-slate-600 hover:text-slate-800 transition";
-            document.getElementById('btn-filter-pending').className = filter === 'pending' 
-                ? "px-3 py-1.5 rounded-md bg-white text-slate-800 shadow-sm" 
-                : "px-3 py-1.5 rounded-md text-slate-600 hover:text-slate-800 transition";
-            renderDetailView();
-        }
-
-        function onHouseChange() {
-            renderDetailView();
-        }
-
-        function renderDetailView() {
-            const houseSelect = document.getElementById('house-select');
-            const houseName = houseSelect.value;
-            if (!houseName || !initialPortfolio[houseName]) return;
-
-            const items = initialPortfolio[houseName];
-            let bSum = 0, auSum = 0, avSum = 0;
-            items.forEach(i => {
-                bSum += i.budgeted;
-                auSum += i.authorized;
-                avSum += i.available;
-            });
-
-            // Update cards
-            document.getElementById('detail-card-budgeted').innerText = fmtUsd(bSum);
-            document.getElementById('detail-card-authorized').innerText = fmtUsd(auSum);
-            document.getElementById('detail-card-available').innerText = fmtUsd(avSum);
-
-            // Update thermometer
-            const pct = bSum > 0 ? ((auSum / bSum) * 100).toFixed(2) : "0";
-            document.getElementById('detail-thermometer-pct').innerText = pct + "%";
-            document.getElementById('detail-thermometer-bar').style.width = pct + "%";
-
-            // List Title
-            document.getElementById('detail-list-title').innerText = "Itens da Casa: " + houseName;
-
-            // Load table body
-            const tbody = document.getElementById('detail-items-table-body');
-            tbody.innerHTML = '';
-
-            items.forEach(item => {
-                if (detailFilter === 'pending' && item.available <= 0) {
-                    return; // Skip non-pending items
-                }
-
-                const tr = document.createElement('tr');
-                // Highlight rows with open balance in mild yellow/amber
-                tr.className = item.available > 0 ? "bg-amber-50/20 hover:bg-amber-50/40" : "hover:bg-slate-50";
-                
-                tr.innerHTML = `
-                    <td class="py-3 px-6 text-xs text-slate-400 font-mono">${item.seq}</td>
-                    <td class="py-3 px-6 font-bold text-slate-900">${item.desc}</td>
-                    <td class="py-3 px-6 text-right font-medium">${fmtUsd(item.budgeted)}</td>
-                    <td class="py-3 px-6 text-right font-medium text-emerald-600">${fmtUsd(item.authorized)}</td>
-                    <td class="py-3 px-6 text-right font-bold ${item.available > 0 ? 'text-amber-600' : 'text-slate-400'}">${fmtUsd(item.available)}</td>
-                    <td class="py-3 px-6 text-center">
-                        <span class="px-2.5 py-1 text-xs font-bold rounded-lg ${item.pct >= 100 ? 'bg-emerald-100 text-emerald-800' : (item.pct > 0 ? 'bg-blue-100 text-blue-800' : 'bg-slate-100 text-slate-500')}">
-                            ${item.pct.toFixed(0)}%
-                        </span>
-                    </td>
-                `;
-                tbody.appendChild(tr);
-            });
-        }
-
-        // EXCEL SHEET DROPZONE PARSER IMPLEMENTATION
-        const dropZone = document.getElementById('drop-zone');
-        const fileInput = document.getElementById('excel-file-input');
-
-        dropZone.onclick = () => fileInput.click();
-
-        fileInput.onchange = (e) => {
-            const files = e.target.files;
-            if (files.length > 0) handleExcelFile(files[0]);
-        };
-
-        dropZone.ondragover = (e) => {
-            e.preventDefault();
-            dropZone.classList.add('border-emerald-500', 'bg-emerald-50/30');
-        };
-
-        dropZone.ondragleave = () => {
-            dropZone.classList.remove('border-emerald-500', 'bg-emerald-50/30');
-        };
-
-        dropZone.ondrop = (e) => {
-            e.preventDefault();
-            dropZone.classList.remove('border-emerald-500', 'bg-emerald-50/30');
-            const files = e.dataTransfer.files;
-            if (files.length > 0) handleExcelFile(files[0]);
-        };
-
-        function handleExcelFile(file) {
-            const reader = new FileReader();
-            reader.onload = function(e) {
-                try {
-                    const data = new Uint8Array(e.target.result);
-                    const workbook = XLSX.read(data, { type: 'array' });
-                    
-                    // Grab first sheet
-                    const sheetName = workbook.SheetNames[0];
-                    const sheet = workbook.Sheets[sheetName];
-                    
-                    // Parse rows to JSON array
-                    const rows = XLSX.utils.sheet_to_json(sheet, { header: 1 });
-                    
-                    if (rows.length < 3) {
-                        alert("Arquivo inválido ou sem dados suficientes.");
-                        return;
-                    }
-
-                    // Extract title name dynamically (usually found in A1)
-                    let extractedTitle = String(rows[0][0] || file.name.replace(".xlsx", "")).split(" ave")[0].trim();
-                    if (extractedTitle.toLowerCase().includes("sequence")) {
-                        extractedTitle = file.name.replace(".xlsx", "").split(" Budget")[0];
-                    }
-
-                    // Parse the columns
-                    const parsedItems = [];
-                    let parsingItems = false;
-                    
-                    for (let r = 0; r < rows.length; r++) {
-                        const row = rows[r];
-                        if (!row || row.length === 0) continue;
-                        
-                        // Detect header row to start reading actual items
-                        if (String(row[1]).toLowerCase().trim() === "description") {
-                            parsingItems = true;
-                            continue;
-                        }
-
-                        if (parsingItems) {
-                            const desc = String(row[1] || "").trim();
-                            if (!desc || desc === "" || desc.toLowerCase() === "total") {
-                                break; // Stop at Total line
-                            }
-
-                            parsedItems.push({
-                                seq: parseInt(row[0]) || (parsedItems.length + 1),
-                                desc: desc,
-                                budgeted: parseFloat(row[2]) || 0,
-                                authorized: parseFloat(row[3]) || 0,
-                                available: parseFloat(row[4]) || 0,
-                                pct: parseFloat(row[5]) || 0
-                            });
-                        }
-                    }
-
-                    if (parsedItems.length > 0) {
-                        // Merge parsed house into portfolio object
-                        initialPortfolio[extractedTitle] = parsedItems;
-                        
-                        // Re-trigger visual refresh
-                        initApp();
-                        
-                        // Select the uploaded house automatically and jump to detail view
-                        document.getElementById('house-select').value = extractedTitle;
-                        switchTab('details');
-                        onHouseChange();
-                        
-                        // Soft Notification
-                        console.log(`Sucesso: ${extractedTitle} carregada com ${parsedItems.length} linhas de budget.`);
-                    } else {
-                        alert("Não foi possível identificar as linhas de orçamento. Verifique se o formato coincide.");
-                    }
-
-                } catch(err) {
-                    console.error("Erro ao ler excel", err);
-                    alert("Falha ao abrir e decodificar planilha. Verifique o arquivo.");
-                }
-            };
-            reader.readAsArrayBuffer(file);
-        }
-    </script>
-</body>
-</html>
+          ))}
+          <div style={{ display: "flex", gap: 8 }}>
+            <Button type="button" variant="ghost" onClick={addLinha}>+ ingrediente</Button>
+            <Button type="submit">Salvar formulação</Button>
+          </div>
+        </form>
+      </Card>
+
+      <Card title={`Formulações cadastradas (${formulacoes.length})`}>
+        <Table
+          columns={[
+            { key: "nome", label: "Formulação" },
+            { key: "ingredientes", label: "Ingredientes", render: (r) => r.ingredientes.map((i) => `${i.nome} (${i.percentual}%)`).join(", ") },
+            { key: "custoKg", label: "Custo/kg", render: (r) => brl(custoKgFormula(r)) },
+          ]}
+          rows={formulacoes}
+        />
+      </Card>
+
+      <Card title="Registrar produção" subtitle="Baixa o custo calculado da formulação e alimenta o estoque de ração.">
+        <form onSubmit={lancarProducao} style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr auto", gap: 10, alignItems: "end" }}>
+          <Field label="Data"><TextInput type="date" value={prod.data} onChange={(e) => setProd({ ...prod, data: e.target.value })} /></Field>
+          <Field label="Formulação"><Select options={formulacoes.map((f) => ({ value: f.id, label: f.nome }))} value={prod.formulacaoId} onChange={(e) => setProd({ ...prod, formulacaoId: e.target.value })} /></Field>
+          <Field label="Quantidade (kg)"><TextInput type="number" value={prod.qtdKg} onChange={(e) => setProd({ ...prod, qtdKg: e.target.value })} /></Field>
+          <Button type="submit">Registrar</Button>
+        </form>
+      </Card>
+
+      <Card title="Produções registradas">
+        <Table
+          columns={[
+            { key: "data", label: "Data" },
+            { key: "formulacaoId", label: "Formulação", render: (r) => formulacoes.find((f) => f.id === r.formulacaoId)?.nome || "—" },
+            { key: "qtdKg", label: "Kg produzidos", render: (r) => r.qtdKg.toLocaleString("pt-BR") },
+            { key: "custoTotal", label: "Custo total", render: (r) => brl(r.custoTotal) },
+          ]}
+          rows={[...producoes].sort((a, b) => (a.data < b.data ? 1 : -1))}
+        />
+      </Card>
+    </div>
+  );
+}
+
+/* ---------------- Compras ---------------- */
+
+function Compras({ db, update, filialId }) {
+  const fornecedores = db.fornecedores.filter((f) => f.filialId === filialId);
+  const compras = db.compras.filter((c) => c.filialId === filialId);
+  const [form, setForm] = useState({ data: todayISO(), fornecedorId: "", categoria: "insumo", descricao: "", valor: "" });
+
+  function lancar(e) {
+    e.preventDefault();
+    update((prev) => ({ ...prev, compras: [...prev.compras, { id: uid(), filialId, ...form, valor: Number(form.valor), statusPagamento: "pendente" }] }));
+    setForm({ data: todayISO(), fornecedorId: "", categoria: "insumo", descricao: "", valor: "" });
+  }
+
+  function marcarPago(c) {
+    update((prev) => ({ ...prev, compras: prev.compras.map((x) => (x.id === c.id ? { ...x, statusPagamento: x.statusPagamento === "pago" ? "pendente" : "pago", dataPagamento: todayISO() } : x)) }));
+  }
+
+  const nomeFornecedor = (id) => fornecedores.find((f) => f.id === id)?.nome || "—";
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <CrudBlock
+        title="Fornecedores" filialId={filialId} items={fornecedores} onChange={(items) => update((prev) => ({ ...prev, fornecedores: mergeByFilial(prev.fornecedores, items, filialId) }))}
+        fields={[{ key: "nome", label: "Nome", required: true }, { key: "cidade", label: "Cidade" }]}
+      />
+      <Card title="Lançar compra" subtitle="Gera automaticamente uma conta a pagar e alimenta a DRE como despesa.">
+        <form onSubmit={lancar} style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 2fr 1fr", gap: 10, alignItems: "end" }}>
+          <Field label="Data"><TextInput type="date" value={form.data} onChange={(e) => setForm({ ...form, data: e.target.value })} /></Field>
+          <Field label="Fornecedor"><Select options={fornecedores.map((f) => ({ value: f.id, label: f.nome }))} value={form.fornecedorId} onChange={(e) => setForm({ ...form, fornecedorId: e.target.value })} /></Field>
+          <Field label="Categoria">
+            <Select options={[{ value: "insumo", label: "Insumo / Ração" }, { value: "administrativo", label: "Administrativo" }, { value: "manutencao", label: "Manutenção" }, { value: "outro", label: "Outro" }]} value={form.categoria} onChange={(e) => setForm({ ...form, categoria: e.target.value })} />
+          </Field>
+          <Field label="Descrição"><TextInput value={form.descricao} onChange={(e) => setForm({ ...form, descricao: e.target.value })} /></Field>
+          <Field label="Valor (R$)"><TextInput type="number" step="0.01" value={form.valor} onChange={(e) => setForm({ ...form, valor: e.target.value })} /></Field>
+          <div style={{ gridColumn: "1 / -1" }}><Button type="submit">Lançar compra</Button></div>
+        </form>
+      </Card>
+      <Card title={`Compras lançadas (${compras.length})`}>
+        <Table
+          columns={[
+            { key: "data", label: "Data" },
+            { key: "fornecedorId", label: "Fornecedor", render: (r) => nomeFornecedor(r.fornecedorId) },
+            { key: "categoria", label: "Categoria" },
+            { key: "descricao", label: "Descrição" },
+            { key: "valor", label: "Valor", render: (r) => brl(r.valor) },
+            { key: "statusPagamento", label: "Pagamento", render: (r) => <button onClick={() => marcarPago(r)} style={{ border: "none", background: "none", cursor: "pointer" }}><StatusPill status={r.statusPagamento} /></button> },
+          ]}
+          rows={[...compras].sort((a, b) => (a.data < b.data ? 1 : -1))}
+        />
+      </Card>
+    </div>
+  );
+}
+
+/* ---------------- Financeiro ---------------- */
+
+function Financeiro({ db, filialId }) {
+  const vendas = db.vendas.filter((v) => v.filialId === filialId);
+  const compras = db.compras.filter((c) => c.filialId === filialId);
+  const fretes = db.fretes.filter((f) => f.filialId === filialId);
+
+  const receber = vendas.filter((v) => v.statusPagamento !== "pago");
+  const pagarCompras = compras.filter((c) => c.statusPagamento !== "pago");
+  const pagarFretes = fretes.filter((f) => f.statusPagamento !== "pago");
+
+  const totalReceber = receber.reduce((s, v) => s + Number(v.total || 0), 0);
+  const totalPagar = pagarCompras.reduce((s, c) => s + Number(c.valor || 0), 0) + pagarFretes.reduce((s, f) => s + Number(f.valorFrete || 0), 0);
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div style={{ display: "flex", gap: 14 }}>
+        <StatCard label="Total a receber" value={brl(totalReceber)} accent={GOLD} />
+        <StatCard label="Total a pagar" value={brl(totalPagar)} accent={DANGER} />
+        <StatCard label="Saldo projetado" value={brl(totalReceber - totalPagar)} accent={GREEN} />
+      </div>
+      <Card title="Contas a receber" subtitle="Gerado automaticamente a partir das vendas pendentes. Baixe o pagamento no módulo Vendas.">
+        <Table
+          columns={[{ key: "data", label: "Data da venda" }, { key: "total", label: "Valor", render: (r) => brl(r.total) }]}
+          rows={receber}
+          emptyText="Nenhuma conta a receber em aberto."
+        />
+      </Card>
+      <Card title="Contas a pagar — compras" subtitle="Baixe o pagamento no módulo Compras.">
+        <Table
+          columns={[{ key: "data", label: "Data" }, { key: "descricao", label: "Descrição" }, { key: "valor", label: "Valor", render: (r) => brl(r.valor) }]}
+          rows={pagarCompras}
+          emptyText="Nenhuma conta a pagar em aberto."
+        />
+      </Card>
+      <Card title="Contas a pagar — fretes" subtitle="Baixe o pagamento no módulo Logística.">
+        <Table
+          columns={[{ key: "data", label: "Data" }, { key: "destino", label: "Destino" }, { key: "valorFrete", label: "Valor", render: (r) => brl(r.valorFrete) }]}
+          rows={pagarFretes}
+          emptyText="Nenhuma conta a pagar em aberto."
+        />
+      </Card>
+    </div>
+  );
+}
+
+/* ---------------- Contabilidade: DRE + Balanço ---------------- */
+
+function Contabilidade({ db, filialId }) {
+  const vendas = db.vendas.filter((v) => v.filialId === filialId);
+  const compras = db.compras.filter((c) => c.filialId === filialId);
+  const fretes = db.fretes.filter((f) => f.filialId === filialId);
+  const produtos = db.produtos.filter((p) => p.filialId === filialId);
+
+  const receitaBruta = vendas.reduce((s, v) => s + Number(v.total || 0), 0);
+  const comissoes = vendas.reduce((s, v) => s + Number(v.comissaoValor || 0), 0);
+  const custoInsumos = compras.filter((c) => c.categoria === "insumo").reduce((s, c) => s + Number(c.valor || 0), 0);
+  const despesasAdm = compras.filter((c) => c.categoria === "administrativo").reduce((s, c) => s + Number(c.valor || 0), 0);
+  const manutencao = compras.filter((c) => c.categoria === "manutencao").reduce((s, c) => s + Number(c.valor || 0), 0);
+  const outrasCompras = compras.filter((c) => !["insumo", "administrativo", "manutencao"].includes(c.categoria)).reduce((s, c) => s + Number(c.valor || 0), 0);
+  const despesasFrete = fretes.reduce((s, f) => s + Number(f.valorFrete || 0), 0);
+
+  const totalDespesas = comissoes + custoInsumos + despesasAdm + manutencao + outrasCompras + despesasFrete;
+  const resultadoLiquido = receitaBruta - totalDespesas;
+
+  const caixa = receitaBruta - totalDespesas; // simplificado: regime de caixa acumulado
+  const contasReceber = vendas.filter((v) => v.statusPagamento !== "pago").reduce((s, v) => s + Number(v.total || 0), 0);
+  const estoqueValor = produtos.reduce((s, p) => s + Number(p.custoUnit || 0) * 0, 0); // sem contagem física neste protótipo
+  const ativoTotal = caixa + contasReceber + estoqueValor;
+  const contasPagar = compras.filter((c) => c.statusPagamento !== "pago").reduce((s, c) => s + Number(c.valor || 0), 0) + fretes.filter((f) => f.statusPagamento !== "pago").reduce((s, f) => s + Number(f.valorFrete || 0), 0);
+  const patrimonioLiquido = ativoTotal - contasPagar;
+
+  const linha = (label, valor, bold, indent) => (
+    <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: `1px solid ${BORDER}`, fontWeight: bold ? 800 : 500, paddingLeft: indent ? 16 : 0, color: bold ? GREEN : INK, fontSize: bold ? 14 : 13 }}>
+      <span>{label}</span><span>{brl(valor)}</span>
+    </div>
+  );
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div style={{ background: "#FBF3DC", border: `1px solid ${GOLD_LIGHT}`, borderRadius: 10, padding: "10px 14px", fontSize: 12.5, color: "#6B5410" }}>
+        Demonstrações calculadas automaticamente a partir dos lançamentos de Vendas, Compras e Logística desta filial — regime de caixa simplificado, para fins gerenciais. Não substitui a escrituração contábil oficial.
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+        <Card title="DRE — Demonstrativo de Resultado">
+          {linha("Receita bruta de vendas", receitaBruta)}
+          {linha("(-) Comissões sobre vendas", -comissoes, false, true)}
+          {linha("(-) Insumos e ração", -custoInsumos, false, true)}
+          {linha("(-) Despesas administrativas", -despesasAdm, false, true)}
+          {linha("(-) Manutenção", -manutencao, false, true)}
+          {linha("(-) Fretes e logística", -despesasFrete, false, true)}
+          {linha("(-) Outras despesas", -outrasCompras, false, true)}
+          <div style={{ marginTop: 8 }}>{linha("Resultado líquido do período", resultadoLiquido, true)}</div>
+        </Card>
+        <Card title="Balanço Patrimonial (simplificado)">
+          <div style={{ fontSize: 12.5, fontWeight: 800, color: MUTED, marginTop: 4 }}>ATIVO</div>
+          {linha("Caixa (acumulado)", caixa, false, true)}
+          {linha("Contas a receber", contasReceber, false, true)}
+          {linha("Estoques", estoqueValor, false, true)}
+          {linha("Total do ativo", ativoTotal, true)}
+          <div style={{ fontSize: 12.5, fontWeight: 800, color: MUTED, marginTop: 14 }}>PASSIVO + PATRIMÔNIO LÍQUIDO</div>
+          {linha("Contas a pagar", contasPagar, false, true)}
+          {linha("Patrimônio líquido", patrimonioLiquido, false, true)}
+          {linha("Total passivo + PL", contasPagar + patrimonioLiquido, true)}
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+/* ---------------- Logística ---------------- */
+
+function Logistica({ db, update, filialId }) {
+  const motoristas = db.motoristas.filter((m) => m.filialId === filialId);
+  const veiculos = db.veiculos.filter((v) => v.filialId === filialId);
+  const fretes = db.fretes.filter((f) => f.filialId === filialId);
+  const [form, setForm] = useState({ data: todayISO(), motoristaId: "", veiculoId: "", destino: "", valorFrete: "" });
+
+  function lancar(e) {
+    e.preventDefault();
+    update((prev) => ({ ...prev, fretes: [...prev.fretes, { id: uid(), filialId, ...form, valorFrete: Number(form.valorFrete), statusPagamento: "pendente" }] }));
+    setForm({ data: todayISO(), motoristaId: "", veiculoId: "", destino: "", valorFrete: "" });
+  }
+
+  function marcarPago(f) {
+    update((prev) => ({ ...prev, fretes: prev.fretes.map((x) => (x.id === f.id ? { ...x, statusPagamento: x.statusPagamento === "pago" ? "pendente" : "pago" } : x)) }));
+  }
+
+  const nomeMotorista = (id) => motoristas.find((m) => m.id === id)?.nome || "—";
+  const nomeVeiculo = (id) => veiculos.find((v) => v.id === id)?.placa || "—";
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+        <CrudBlock title="Motoristas" filialId={filialId} items={motoristas} onChange={(items) => update((prev) => ({ ...prev, motoristas: mergeByFilial(prev.motoristas, items, filialId) }))}
+          fields={[{ key: "nome", label: "Nome", required: true }, { key: "cnh", label: "CNH" }]} />
+        <CrudBlock title="Veículos" filialId={filialId} items={veiculos} onChange={(items) => update((prev) => ({ ...prev, veiculos: mergeByFilial(prev.veiculos, items, filialId) }))}
+          fields={[{ key: "placa", label: "Placa", required: true }, { key: "modelo", label: "Modelo" }]} />
+      </div>
+      <Card title="Lançar frete" subtitle="Gera uma conta a pagar e entra como despesa de logística na DRE.">
+        <form onSubmit={lancar} style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr 1fr", gap: 10, alignItems: "end" }}>
+          <Field label="Data"><TextInput type="date" value={form.data} onChange={(e) => setForm({ ...form, data: e.target.value })} /></Field>
+          <Field label="Motorista"><Select options={motoristas.map((m) => ({ value: m.id, label: m.nome }))} value={form.motoristaId} onChange={(e) => setForm({ ...form, motoristaId: e.target.value })} /></Field>
+          <Field label="Veículo"><Select options={veiculos.map((v) => ({ value: v.id, label: v.placa }))} value={form.veiculoId} onChange={(e) => setForm({ ...form, veiculoId: e.target.value })} /></Field>
+          <Field label="Destino"><TextInput value={form.destino} onChange={(e) => setForm({ ...form, destino: e.target.value })} /></Field>
+          <Field label="Valor (R$)"><TextInput type="number" step="0.01" value={form.valorFrete} onChange={(e) => setForm({ ...form, valorFrete: e.target.value })} /></Field>
+          <div style={{ gridColumn: "1 / -1" }}><Button type="submit">Lançar frete</Button></div>
+        </form>
+      </Card>
+      <Card title={`Fretes lançados (${fretes.length})`}>
+        <Table
+          columns={[
+            { key: "data", label: "Data" },
+            { key: "motoristaId", label: "Motorista", render: (r) => nomeMotorista(r.motoristaId) },
+            { key: "veiculoId", label: "Veículo", render: (r) => nomeVeiculo(r.veiculoId) },
+            { key: "destino", label: "Destino" },
+            { key: "valorFrete", label: "Valor", render: (r) => brl(r.valorFrete) },
+            { key: "statusPagamento", label: "Pagamento", render: (r) => <button onClick={() => marcarPago(r)} style={{ border: "none", background: "none", cursor: "pointer" }}><StatusPill status={r.statusPagamento} /></button> },
+          ]}
+          rows={[...fretes].sort((a, b) => (a.data < b.data ? 1 : -1))}
+        />
+      </Card>
+    </div>
+  );
+}
+
+/* ---------------- Fiscal (NFe / SPED) — módulo ilustrativo ---------------- */
+
+function Fiscal({ db, filialId }) {
+  const vendas = db.vendas.filter((v) => v.filialId === filialId);
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div style={{ background: "#FBEAE4", border: `1px solid ${DANGER}55`, borderRadius: 10, padding: "12px 14px", fontSize: 12.5, color: "#7A2E1B" }}>
+        <b>Importante:</b> este módulo mostra a estrutura de dados e o layout dos documentos, mas não emite NF-e nem SPED de verdade — isso exige certificado digital (A1/A3), contrato com a SEFAZ e homologação do ambiente, feitos por um provedor fiscal certificado. Trate os arquivos abaixo como pré-visualização, não como documento fiscal válido.
+      </div>
+      <Card title="Notas fiscais (pré-visualização)" subtitle="Uma linha por venda lançada — o layout real da NF-e é um XML assinado digitalmente, muito mais extenso.">
+        <Table
+          columns={[
+            { key: "data", label: "Data" },
+            { key: "total", label: "Valor" , render: (r) => brl(r.total) },
+            { key: "status", label: "Status", render: () => <span style={{ fontSize: 11, color: MUTED }}>rascunho — não transmitida</span> },
+          ]}
+          rows={vendas}
+          emptyText="Nenhuma venda para gerar nota fiscal."
+        />
+      </Card>
+      <Card title="SPED Fiscal / Contábil" subtitle="Blocos ilustrativos com base nos lançamentos desta filial.">
+        <div style={{ fontFamily: "monospace", fontSize: 11.5, background: GREEN_DARK, color: "#D7E3DC", padding: 14, borderRadius: 8, overflowX: "auto", whiteSpace: "pre" }}>
+{`|0000|... (abertura do arquivo — dados da empresa) |
+|C100|...  (${vendas.length} registro(s) de saída/venda)
+|E110|...  (apuração de ICMS — requer parametrização fiscal real)
+|9999|... (encerramento do arquivo)`}
+        </div>
+      </Card>
+    </div>
+  );
+}
