@@ -130,6 +130,7 @@ const emptyDB = () => ({
   viagensEntrega: [],
   registrosDescarte: [],
   orcamentos: [],
+  lotesProduto: [],
 });
 
 const MODULES = [
@@ -978,6 +979,54 @@ function AlertaFasesLote({ db, update, filialId }) {
   );
 }
 
+/* Popup global — avisa sobre lotes de produto (ex.: ovo) próximos da validade,
+   em 30, 14 ou 2 dias. Mesmo padrão de escalonamento do alerta de fase de aves. */
+function AlertaValidadeLotes({ db, update, filialId }) {
+  const [aberto, setAberto] = useState(true);
+  const hoje = todayISO();
+  const lotes = db.lotesProduto.filter((l) => l.filialId === filialId && l.dataValidade);
+  const produtos = db.produtos.filter((p) => p.filialId === filialId);
+  const lidas = db.notificacoesLidas.filter((n) => n.filialId === filialId);
+
+  const faixa = (dias) => (dias <= 2 ? 2 : dias <= 14 ? 14 : 30);
+  const chaveLida = (loteId, dias) => `validade::${loteId}::${faixa(dias)}`;
+  const jaLida = (loteId, dias) => lidas.some((l) => l.chave === chaveLida(loteId, dias));
+
+  const alertas = lotes
+    .map((l) => ({ ...l, diasRestantes: Math.round((new Date(l.dataValidade + "T00:00:00") - new Date(hoje + "T00:00:00")) / 86400000) }))
+    .filter((l) => l.diasRestantes <= 30 && !jaLida(l.id, l.diasRestantes))
+    .sort((a, b) => a.diasRestantes - b.diasRestantes);
+
+  function marcarLida(alerta) {
+    update((prev) => ({ ...prev, notificacoesLidas: [...prev.notificacoesLidas, { id: uid(), filialId, chave: chaveLida(alerta.id, alerta.diasRestantes), data: hoje }] }));
+  }
+
+  if (!alertas.length || !aberto) return null;
+
+  return (
+    <Modal title="Alerta — lotes próximos da validade" onClose={() => setAberto(false)}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        {alertas.map((a) => {
+          const urgente = a.diasRestantes <= 2;
+          const produto = produtos.find((p) => p.id === a.produtoId);
+          return (
+            <div key={a.id} style={{ background: urgente ? "#FBEAE4" : "#FBF3DC", border: `1px solid ${urgente ? DANGER : GOLD}55`, borderRadius: 10, padding: 12 }}>
+              <div style={{ fontWeight: 800, color: urgente ? DANGER : "#6B5410" }}>
+                {produto?.nome || "Produto"} — lote {a.codigo} — {a.diasRestantes < 0 ? `${Math.abs(a.diasRestantes)} dia(s) vencido` : a.diasRestantes === 0 ? "vence hoje" : `${a.diasRestantes} dia(s) restante(s)`}
+              </div>
+              <div style={{ fontSize: 12.5, color: INK, marginTop: 4 }}>
+                Validade: {a.dataValidade.split("-").reverse().join("/")} · Quantidade: {Number(a.quantidade || 0).toLocaleString("pt-BR")}
+              </div>
+              <Button variant="ghost" style={{ marginTop: 8 }} onClick={() => marcarLida(a)}>Marcar como lido</Button>
+            </div>
+          );
+        })}
+      </div>
+      <div style={{ fontSize: 11, color: MUTED, marginTop: 12 }}>A equipe de manejo cadastrada também recebe esses avisos por e-mail, mesmo que ninguém abra o sistema.</div>
+    </Modal>
+  );
+}
+
 function AvisoftApp() {
   const [conn, setConn] = useState(undefined); // undefined = ainda não verificou; null = não configurado
   const [db, setDb] = useState(null);
@@ -1068,6 +1117,7 @@ function AvisoftApp() {
   return (
     <div style={shell(isMobile)}>
       <AlertaFasesLote db={db} update={update} filialId={session.filialId} />
+      <AlertaValidadeLotes db={db} update={update} filialId={session.filialId} />
       {saveError && (
         <div style={{ position: "fixed", top: 10, right: 10, background: DANGER, color: "#fff", padding: "8px 14px", borderRadius: 8, fontSize: 12.5, zIndex: 50, maxWidth: 360 }}>
           Não foi possível salvar no banco de dados: {saveError}
@@ -1375,37 +1425,36 @@ function ModuleView({ activeModule, db, update, conn, filialId, empresaId, usuar
       return <Usuarios db={db} update={update} empresaId={empresaId} />;
     case "produtos":
       return (
-        <CrudBlock
-          title="Produtos & Embalagens"
-          subtitle="Ovos por tipo/calibre, caixas, cartelas e demais itens vendáveis ou de embalagem."
-          filialId={filialId}
-          items={scoped("produtos")}
-          onChange={set("produtos")}
-          fields={[
-            { key: "nome", label: "Nome do produto", required: true },
-            { key: "tipo", label: "Tipo", type: "select", options: [{ value: "ovo", label: "Ovo" }, { value: "embalagem", label: "Embalagem" }, { value: "outro", label: "Outro" }] },
-            { key: "unidade", label: "Unidade", type: "select", options: [{ value: "dz", label: "Dúzia" }, { value: "cx", label: "Caixa" }, { value: "un", label: "Unidade" }, { value: "kg", label: "Kg" }, { value: "ton", label: "Tonelada" }, { value: "l", label: "Litro" }, { value: "sc", label: "Saco" }] },
-            { key: "custoUnit", label: "Custo unitário (R$)", type: "number" },
-            { key: "precoVenda", label: "Preço de venda (R$)", type: "number" },
-            { key: "lote", label: "Lote produzido" },
-            { key: "dataValidade", label: "Validade do lote", type: "date" },
-            { key: "cfop", label: "CFOP" },
-            { key: "residuo", label: "É resíduo/subproduto?", type: "select", options: [{ value: "false", label: "Não" }, { value: "true", label: "Sim (ex.: esterco)" }] },
-            { key: "foto", label: "Foto (mostrada ao cliente na Força de Vendas)", type: "file" },
-          ]}
-          columns={[
-            { key: "foto", label: "", render: (r) => (r.foto?.dataUrl ? <img src={r.foto.dataUrl} alt="" style={{ width: 32, height: 32, borderRadius: 6, objectFit: "cover" }} /> : "—") },
-            { key: "nome", label: "Produto" },
-            { key: "tipo", label: "Tipo" },
-            { key: "unidade", label: "Unid." },
-            { key: "custoUnit", label: "Custo", render: (r) => brl(r.custoUnit) },
-            { key: "precoVenda", label: "Preço", render: (r) => brl(r.precoVenda) },
-            { key: "lote", label: "Lote" },
-            { key: "dataValidade", label: "Validade", render: (r) => r.dataValidade || "—" },
-            { key: "cfop", label: "CFOP" },
-            { key: "residuo", label: "Resíduo", render: (r) => (r.residuo === true || r.residuo === "true" ? "Sim" : "Não") },
-          ]}
-        />
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          <CrudBlock
+            title="Produtos & Embalagens"
+            subtitle="Ovos por tipo/calibre, caixas, cartelas e demais itens vendáveis ou de embalagem."
+            filialId={filialId}
+            items={scoped("produtos")}
+            onChange={set("produtos")}
+            fields={[
+              { key: "nome", label: "Nome do produto", required: true },
+              { key: "tipo", label: "Tipo", type: "select", options: [{ value: "ovo", label: "Ovo" }, { value: "embalagem", label: "Embalagem" }, { value: "outro", label: "Outro" }] },
+              { key: "unidade", label: "Unidade", type: "select", options: [{ value: "dz", label: "Dúzia" }, { value: "cx", label: "Caixa" }, { value: "un", label: "Unidade" }, { value: "kg", label: "Kg" }, { value: "ton", label: "Tonelada" }, { value: "l", label: "Litro" }, { value: "sc", label: "Saco" }] },
+              { key: "custoUnit", label: "Custo unitário (R$)", type: "number" },
+              { key: "precoVenda", label: "Preço de venda (R$)", type: "number" },
+              { key: "cfop", label: "CFOP" },
+              { key: "residuo", label: "É resíduo/subproduto?", type: "select", options: [{ value: "false", label: "Não" }, { value: "true", label: "Sim (ex.: esterco)" }] },
+              { key: "foto", label: "Foto (mostrada ao cliente na Força de Vendas)", type: "file" },
+            ]}
+            columns={[
+              { key: "foto", label: "", render: (r) => (r.foto?.dataUrl ? <img src={r.foto.dataUrl} alt="" style={{ width: 32, height: 32, borderRadius: 6, objectFit: "cover" }} /> : "—") },
+              { key: "nome", label: "Produto" },
+              { key: "tipo", label: "Tipo" },
+              { key: "unidade", label: "Unid." },
+              { key: "custoUnit", label: "Custo", render: (r) => brl(r.custoUnit) },
+              { key: "precoVenda", label: "Preço", render: (r) => brl(r.precoVenda) },
+              { key: "cfop", label: "CFOP" },
+              { key: "residuo", label: "Resíduo", render: (r) => (r.residuo === true || r.residuo === "true" ? "Sim" : "Não") },
+            ]}
+          />
+          <LotesProduto db={db} update={update} filialId={filialId} />
+        </div>
       );
     case "vendas":
       return <Vendas db={db} update={update} filialId={filialId} />;
@@ -2152,10 +2201,62 @@ function Vendas({ db, update, filialId }) {
 
 /* ---------------- Estoque ---------------- */
 
+/* Cadastro de lotes de produção — cada lote é um registro separado, com sua
+   própria validade, permitindo vários lotes em aberto para um mesmo produto. */
+function LotesProduto({ db, update, filialId }) {
+  const produtos = db.produtos.filter((p) => p.filialId === filialId);
+  const lotes = db.lotesProduto.filter((l) => l.filialId === filialId);
+  const hoje = todayISO();
+
+  function corValidade(dataValidade) {
+    if (!dataValidade) return MUTED;
+    const dias = Math.round((new Date(dataValidade + "T00:00:00") - new Date(hoje + "T00:00:00")) / 86400000);
+    if (dias < 0) return DANGER;
+    if (dias <= 7) return DANGER;
+    if (dias <= 30) return GOLD;
+    return SUCCESS;
+  }
+
+  return (
+    <CrudBlock
+      title="Lotes de Produção (com validade)"
+      subtitle="Cada lote é um cadastro separado do produto — um mesmo produto pode ter vários lotes com validades diferentes ao mesmo tempo."
+      filialId={filialId}
+      items={lotes}
+      onChange={(items) => update((prev) => ({ ...prev, lotesProduto: mergeByFilial(prev.lotesProduto, items, filialId) }))}
+      fields={[
+        { key: "produtoId", label: "Produto", type: "select", options: produtos.map((p) => ({ value: p.id, label: p.nome })) },
+        { key: "codigo", label: "Código do lote", required: true },
+        { key: "dataProducao", label: "Data de produção", type: "date" },
+        { key: "dataValidade", label: "Data de validade", type: "date" },
+        { key: "quantidade", label: "Quantidade produzida", type: "number" },
+      ]}
+      columns={[
+        { key: "produtoId", label: "Produto", render: (r) => produtos.find((p) => p.id === r.produtoId)?.nome || "—" },
+        { key: "codigo", label: "Lote" },
+        { key: "quantidade", label: "Qtd.", render: (r) => Number(r.quantidade || 0).toLocaleString("pt-BR") },
+        {
+          key: "dataValidade", label: "Validade", render: (r) => {
+            if (!r.dataValidade) return "—";
+            const dias = Math.round((new Date(r.dataValidade + "T00:00:00") - new Date(hoje + "T00:00:00")) / 86400000);
+            return <span style={{ color: corValidade(r.dataValidade), fontWeight: 700 }}>{r.dataValidade.split("-").reverse().join("/")} {dias < 0 ? "(vencido)" : `(${dias}d)`}</span>;
+          },
+        },
+      ]}
+    />
+  );
+}
+
 function Estoque({ db, filialId }) {
   const produtos = db.produtos.filter((p) => p.filialId === filialId);
   const movimentacoes = db.movimentacoesEstoque.filter((m) => m.filialId === filialId);
   const producoes = db.producoesRacao.filter((p) => p.filialId === filialId);
+  const lotesProduto = db.lotesProduto.filter((l) => l.filialId === filialId);
+
+  const proximaValidade = (produtoId) => {
+    const lotes = lotesProduto.filter((l) => l.produtoId === produtoId && l.dataValidade).sort((a, b) => (a.dataValidade < b.dataValidade ? -1 : 1));
+    return lotes[0];
+  };
 
   const saldoPorProduto = {};
   movimentacoes.forEach((m) => {
@@ -2172,7 +2273,7 @@ function Estoque({ db, filialId }) {
           columns={[
             { key: "nome", label: "Produto" },
             { key: "unidade", label: "Unidade" },
-            { key: "lote", label: "Lote", render: (r) => r.lote || "—" },
+            { key: "lote", label: "Próximo lote a vencer", render: (r) => { const l = proximaValidade(r.id); return l ? `${l.codigo} — ${l.dataValidade.split("-").reverse().join("/")}` : "—"; } },
             { key: "saldo", label: "Saldo atual", render: (r) => (saldoPorProduto[r.id] || 0).toLocaleString("pt-BR") },
             { key: "valorEstoque", label: "Custo unitário", render: (r) => brl(r.custoUnit) },
           ]}
@@ -3732,6 +3833,143 @@ function SensoresIoT({ conn, db, filialId }) {
 
 /* ---------------- Força de Vendas (tela mobile) ---------------- */
 
+/* Documento imprimível do orçamento — proposta comercial, sem valor fiscal. */
+function OrcamentoDoc({ orcamento, empresa, filial, cliente, produtos, vendedorNome }) {
+  const cell = { border: "1px solid #ddd", padding: "5px 8px", textAlign: "center" };
+  return (
+    <div style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", color: "#111" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", borderBottom: `2px solid ${GREEN}`, paddingBottom: 12, marginBottom: 14 }}>
+        <div>
+          <div style={{ fontSize: 19, fontWeight: 800, color: GREEN }}>{empresa?.nome || "—"}</div>
+          <div style={{ fontSize: 11, color: "#555" }}>{filial?.endereco || ""}{filial?.cidade ? ` — ${filial.cidade}/${filial.uf}` : ""}</div>
+          <div style={{ fontSize: 11, color: "#555" }}>{empresa?.telefone || ""}</div>
+        </div>
+        <div style={{ textAlign: "right" }}>
+          <div style={{ fontSize: 20, fontWeight: 800, color: GOLD }}>ORÇAMENTO</div>
+          <div style={{ fontSize: 10.5, color: "#555" }}>Nº {orcamento.id.slice(0, 8).toUpperCase()}</div>
+          <div style={{ fontSize: 10.5, color: "#555" }}>Emitido em {orcamento.data.split("-").reverse().join("/")}</div>
+          <div style={{ fontSize: 10.5, color: "#555" }}>Válido até {orcamento.validadeAte ? orcamento.validadeAte.split("-").reverse().join("/") : "—"}</div>
+        </div>
+      </div>
+      <div style={{ marginBottom: 12 }}>
+        <div style={{ fontSize: 10.5, fontWeight: 700, color: "#777" }}>CLIENTE</div>
+        <div style={{ fontSize: 13, fontWeight: 700 }}>{cliente?.razaoSocial || "—"}</div>
+        <div style={{ fontSize: 11, color: "#555" }}>{cliente?.telefone1 || ""}{cliente?.cidade ? ` — ${cliente.cidade}/${cliente.uf}` : ""}</div>
+      </div>
+      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+        <thead>
+          <tr style={{ background: "#f2f2f2" }}>
+            <th style={{ ...cell, textAlign: "left" }}>Produto</th><th style={cell}>Qtd</th><th style={cell}>Vlr. unit.</th><th style={cell}>Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          {orcamento.itens.map((it, i) => {
+            const p = produtos.find((x) => x.id === it.produtoId);
+            return (
+              <tr key={i}>
+                <td style={{ ...cell, textAlign: "left" }}>{p?.nome || "—"}</td>
+                <td style={cell}>{it.qtd}</td>
+                <td style={cell}>{brl(it.precoUnit)}</td>
+                <td style={cell}>{brl(it.qtd * it.precoUnit)}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      <div style={{ textAlign: "right", marginTop: 12, fontSize: 18, fontWeight: 800, color: GREEN }}>Total: {brl(orcamento.total)}</div>
+      <div style={{ marginTop: 12, fontSize: 11, color: "#444", lineHeight: 1.7 }}>
+        <b>Condição de pagamento:</b> {CONDICOES_PAGAMENTO.find((c) => c.value === orcamento.condicaoPagamento)?.label || "—"}<br />
+        <b>Entrega:</b> {orcamento.tipoEntrega === "entrega" ? `Entrega própria (frete: ${brl(orcamento.valorFrete)})` : "Cliente retira no local"}<br />
+        <b>Vendedor:</b> {vendedorNome || "—"}
+      </div>
+      <div style={{ marginTop: 16, fontSize: 9.5, color: "#999", textAlign: "center" }}>Este documento é uma proposta comercial e não tem valor fiscal.</div>
+    </div>
+  );
+}
+
+/* Lista de orçamentos — visualizar/imprimir e converter em venda (com direito a NF-e depois). */
+function OrcamentosLista({ db, update, filialId }) {
+  const orcamentos = db.orcamentos.filter((o) => o.filialId === filialId);
+  const produtos = db.produtos.filter((p) => p.filialId === filialId);
+  const clientes = db.clientes.filter((c) => c.filialId === filialId);
+  const vendedores = db.vendedores.filter((v) => v.filialId === filialId);
+  const empresa = db.empresas.find((e) => e.filiais.some((f) => f.id === filialId));
+  const filial = empresa?.filiais.find((f) => f.id === filialId);
+  const [verOrcamento, setVerOrcamento] = useState(null);
+
+  function nomeVend(id) { const v = vendedores.find((x) => x.id === id); return v ? (v.apelido || v.nomeCompleto) : "—"; }
+
+  function converterEmVenda(orc) {
+    const cliente = clientes.find((c) => c.id === orc.clienteId);
+    const vendedor = vendedores.find((v) => v.id === orc.vendedorId);
+    const comissaoValor = vendedor ? orc.total * (Number(vendedor.percentualComissao || 0) / 100) : 0;
+    let comissaoGerenteValor = 0, gerenteComercialId = null;
+    if (vendedor?.gerenteComercialId) {
+      const gerente = vendedores.find((v) => v.id === vendedor.gerenteComercialId);
+      if (gerente) { gerenteComercialId = gerente.id; comissaoGerenteValor = orc.total * (Number(gerente.percentualComissaoGerente || 0) / 100); }
+    }
+    const parcelas = gerarParcelas(orc.condicaoPagamento || "boleto_30", orc.total, todayISO());
+    const itensComCfop = orc.itens.map((it) => {
+      const prod = produtos.find((p) => p.id === it.produtoId);
+      const cfop = determinarCFOP(empresa?.tipoEmpresa, filial?.uf, cliente?.uf, ehSim(prod?.residuo));
+      return { produtoId: it.produtoId, qtd: it.qtd, precoUnit: it.precoUnit, cfop };
+    });
+    const venda = {
+      id: uid(), filialId, data: todayISO(), clienteId: orc.clienteId, vendedorId: orc.vendedorId,
+      itens: itensComCfop, total: orc.total, comissaoValor, gerenteComercialId, comissaoGerenteValor,
+      condicaoPagamento: orc.condicaoPagamento || "boleto_30", centroCustoId: "", parcelas, nfe: null, origem: "Orçamento convertido",
+    };
+    const movimentos = orc.itens.map((it) => ({ id: uid(), filialId, data: todayISO(), produtoId: it.produtoId, tipo: "saida", qtd: it.qtd, motivo: "Venda (orçamento convertido)", origem: "venda:" + venda.id }));
+    const freteNovo = orc.tipoEntrega === "entrega"
+      ? [{ id: uid(), filialId, data: todayISO(), motoristaId: "", veiculoId: "", destino: `${cliente?.razaoSocial || "Cliente"} — ${cliente?.cidade || ""}/${cliente?.uf || ""}`, valorFrete: Number(orc.valorFrete || 0), statusPagamento: "pendente", origemVendaId: venda.id }]
+      : [];
+    update((prev) => ({
+      ...prev,
+      vendas: [...prev.vendas, venda],
+      movimentacoesEstoque: [...prev.movimentacoesEstoque, ...movimentos],
+      fretes: [...prev.fretes, ...freteNovo],
+      orcamentos: prev.orcamentos.map((o) => (o.id === orc.id ? { ...o, status: "convertido", vendaId: venda.id } : o)),
+    }));
+    alert("Orçamento convertido em venda! Vá ao módulo Vendas ou Fiscal para emitir a NF-e.");
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      {!orcamentos.length && <div style={{ textAlign: "center", color: MUTED, padding: 30, fontSize: 13 }}>Nenhum orçamento gerado ainda.</div>}
+      {[...orcamentos].sort((a, b) => (a.data < b.data ? 1 : -1)).map((o) => {
+        const cliente = clientes.find((c) => c.id === o.clienteId);
+        return (
+          <div key={o.id} style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, padding: 14 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+              <div>
+                <div style={{ fontWeight: 800, color: GREEN, fontSize: 14 }}>{cliente?.razaoSocial || "Cliente"}</div>
+                <div style={{ fontSize: 11.5, color: MUTED }}>{o.data.split("-").reverse().join("/")} · {o.itens.length} item(ns) · {nomeVend(o.vendedorId)}</div>
+              </div>
+              <div style={{ textAlign: "right" }}>
+                <div style={{ fontWeight: 800, fontSize: 16, color: GREEN }}>{brl(o.total)}</div>
+                <span style={{ fontSize: 10.5, fontWeight: 700, color: o.status === "convertido" ? SUCCESS : GOLD }}>{o.status === "convertido" ? "Convertido em venda" : "Em aberto"}</span>
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+              <Button variant="ghost" onClick={() => setVerOrcamento(o)}>Ver / Imprimir</Button>
+              {o.status !== "convertido" && <Button onClick={() => converterEmVenda(o)}>Converter em venda</Button>}
+            </div>
+          </div>
+        );
+      })}
+      {verOrcamento && (
+        <Modal title="Orçamento" onClose={() => setVerOrcamento(null)} wide>
+          <OrcamentoDoc orcamento={verOrcamento} empresa={empresa} filial={filial} cliente={clientes.find((c) => c.id === verOrcamento.clienteId)} produtos={produtos} vendedorNome={nomeVend(verOrcamento.vendedorId)} />
+          <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+            <Button onClick={() => window.print()}>Imprimir / Salvar PDF</Button>
+            <Button variant="ghost" onClick={() => setVerOrcamento(null)}>Fechar</Button>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
 function ForcaDeVendas({ db, update, filialId }) {
   const produtos = db.produtos.filter((p) => p.filialId === filialId);
   const clientes = db.clientes.filter((c) => c.filialId === filialId);
@@ -3739,6 +3977,7 @@ function ForcaDeVendas({ db, update, filialId }) {
   const empresa = db.empresas.find((e) => e.filiais.some((f) => f.id === filialId));
   const filial = empresa?.filiais.find((f) => f.id === filialId);
 
+  const [aba, setAba] = useState("novo"); // novo | orcamentos
   const [etapa, setEtapa] = useState("cliente"); // cliente | produtos | finalizar | concluido
   const [vendedorId, setVendedorId] = useState(vendedoresAtivos[0]?.id || "");
   const [buscaCliente, setBuscaCliente] = useState("");
@@ -3747,6 +3986,8 @@ function ForcaDeVendas({ db, update, filialId }) {
   const [carrinho, setCarrinho] = useState([]); // [{produtoId, qtd, precoUnit}]
   const [tipoDocumento, setTipoDocumento] = useState("venda"); // orcamento | venda
   const [condicaoPagamento, setCondicaoPagamento] = useState("vista_pix");
+  const [tipoEntrega, setTipoEntrega] = useState("retira"); // retira | entrega
+  const [valorFrete, setValorFrete] = useState("");
   const [resultado, setResultado] = useState(null);
 
   const clienteObj = clientes.find((c) => c.id === clienteSelecionadoId);
@@ -3764,6 +4005,10 @@ function ForcaDeVendas({ db, update, filialId }) {
   function alterarQtd(produtoId, delta) {
     setCarrinho((c) => c.map((it) => (it.produtoId === produtoId ? { ...it, qtd: Math.max(0, it.qtd + delta) } : it)).filter((it) => it.qtd > 0));
   }
+  function definirQtd(produtoId, novaQtd) {
+    const qtd = Math.max(0, Number(novaQtd) || 0);
+    setCarrinho((c) => c.map((it) => (it.produtoId === produtoId ? { ...it, qtd } : it)).filter((it) => it.qtd > 0));
+  }
   const totalCarrinho = carrinho.reduce((s, it) => s + it.qtd * it.precoUnit, 0);
   const qtdItensCarrinho = carrinho.reduce((s, it) => s + it.qtd, 0);
 
@@ -3771,6 +4016,7 @@ function ForcaDeVendas({ db, update, filialId }) {
     setEtapa("cliente"); setClienteSelecionadoId(""); setBuscaCliente("");
     setNovoCliente({ razaoSocial: "", telefone1: "", cidade: "", uf: "" });
     setCarrinho([]); setTipoDocumento("venda"); setCondicaoPagamento("vista_pix"); setResultado(null);
+    setTipoEntrega("retira"); setValorFrete("");
   }
 
   function concluirPedido() {
@@ -3797,6 +4043,8 @@ function ForcaDeVendas({ db, update, filialId }) {
       const orc = {
         id: uid(), filialId, data: todayISO(), clienteId, vendedorId,
         itens: carrinho.map((it) => ({ ...it })), total, condicaoPagamento, status: "aberto",
+        tipoEntrega, valorFrete: tipoEntrega === "entrega" ? Number(valorFrete || 0) : 0,
+        validadeAte: new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10),
       };
       update((prev) => ({
         ...prev,
@@ -3827,12 +4075,16 @@ function ForcaDeVendas({ db, update, filialId }) {
       condicaoPagamento, centroCustoId: "", parcelas, nfe: null, origem: "Força de Vendas",
     };
     const movimentos = carrinho.map((it) => ({ id: uid(), filialId, data: todayISO(), produtoId: it.produtoId, tipo: "saida", qtd: it.qtd, motivo: "Venda (Força de Vendas)", origem: "venda:" + venda.id }));
+    const freteNovo = tipoEntrega === "entrega"
+      ? [{ id: uid(), filialId, data: todayISO(), motoristaId: "", veiculoId: "", destino: `${cliente?.razaoSocial || "Cliente"} — ${cliente?.cidade || ""}/${cliente?.uf || ""}`, valorFrete: Number(valorFrete || 0), statusPagamento: "pendente", origemVendaId: venda.id }]
+      : [];
 
     update((prev) => ({
       ...prev,
       clientes: novoClienteRegistro ? [...prev.clientes, novoClienteRegistro] : prev.clientes,
       vendas: [...prev.vendas, venda],
       movimentacoesEstoque: [...prev.movimentacoesEstoque, ...movimentos],
+      fretes: [...prev.fretes, ...freteNovo],
     }));
 
     let pix = null;
@@ -3848,6 +4100,15 @@ function ForcaDeVendas({ db, update, filialId }) {
 
   return (
     <div style={{ maxWidth: 480, margin: "0 auto", display: "flex", flexDirection: "column", gap: 16 }}>
+      <div style={{ display: "flex", gap: 8 }}>
+        <button onClick={() => setAba("novo")} style={{ flex: 1, padding: "10px", borderRadius: 10, border: "none", background: aba === "novo" ? GREEN : CARD, color: aba === "novo" ? "#fff" : GREEN, fontWeight: 800, cursor: "pointer", boxShadow: aba === "novo" ? "none" : `inset 0 0 0 1px ${BORDER}` }}>Novo pedido</button>
+        <button onClick={() => setAba("orcamentos")} style={{ flex: 1, padding: "10px", borderRadius: 10, border: "none", background: aba === "orcamentos" ? GREEN : CARD, color: aba === "orcamentos" ? "#fff" : GREEN, fontWeight: 800, cursor: "pointer", boxShadow: aba === "orcamentos" ? "none" : `inset 0 0 0 1px ${BORDER}` }}>Orçamentos</button>
+      </div>
+
+      {aba === "orcamentos" ? (
+        <OrcamentosLista db={db} update={update} filialId={filialId} />
+      ) : (
+        <>
       {etapa !== "concluido" && (
         <div style={{ display: "flex", gap: 6 }}>
           {passos.map((p, i) => (
@@ -3910,10 +4171,14 @@ function ForcaDeVendas({ db, update, filialId }) {
                     <div style={{ fontSize: 12, fontWeight: 700, color: INK, minHeight: 30 }}>{p.nome}</div>
                     <div style={{ fontSize: 13.5, fontWeight: 800, color: GREEN, marginTop: 2 }}>{brl(p.precoVenda)}</div>
                     {noCarrinho ? (
-                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 8 }}>
-                        <button onClick={() => alterarQtd(p.id, -1)} style={{ width: 28, height: 28, borderRadius: 6, border: `1px solid ${BORDER}`, background: BG, cursor: "pointer", fontWeight: 800 }}>−</button>
-                        <span style={{ fontWeight: 800, fontSize: 13 }}>{noCarrinho.qtd}</span>
-                        <button onClick={() => alterarQtd(p.id, 1)} style={{ width: 28, height: 28, borderRadius: 6, border: "none", background: GREEN, color: "#fff", cursor: "pointer", fontWeight: 800 }}>+</button>
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 8, gap: 4 }}>
+                        <button onClick={() => alterarQtd(p.id, -1)} style={{ width: 26, height: 26, borderRadius: 6, border: `1px solid ${BORDER}`, background: BG, cursor: "pointer", fontWeight: 800, flexShrink: 0 }}>−</button>
+                        <input
+                          type="number" value={noCarrinho.qtd} onFocus={(e) => e.target.select()}
+                          onChange={(e) => definirQtd(p.id, e.target.value)}
+                          style={{ width: 40, textAlign: "center", fontWeight: 800, fontSize: 13, border: `1px solid ${BORDER}`, borderRadius: 6, padding: "3px 2px" }}
+                        />
+                        <button onClick={() => alterarQtd(p.id, 1)} style={{ width: 26, height: 26, borderRadius: 6, border: "none", background: GREEN, color: "#fff", cursor: "pointer", fontWeight: 800, flexShrink: 0 }}>+</button>
                       </div>
                     ) : (
                       <button onClick={() => addAoCarrinho(p)} style={{ width: "100%", marginTop: 8, padding: "6px 0", borderRadius: 6, border: "none", background: GOLD, color: GREEN_DARK, fontWeight: 800, fontSize: 12, cursor: "pointer" }}>+ Adicionar</button>
@@ -3938,14 +4203,19 @@ function ForcaDeVendas({ db, update, filialId }) {
       {/* ---- Etapa: finalizar ---- */}
       {etapa === "finalizar" && (
         <>
-          <Card title="Resumo do pedido">
+          <Card title="Resumo do pedido" subtitle="A quantidade pode ser ajustada aqui, sem precisar voltar para os produtos.">
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               {carrinho.map((it) => {
                 const p = produtos.find((x) => x.id === it.produtoId);
                 return (
-                  <div key={it.produtoId} style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
-                    <span>{it.qtd}x {p?.nome}</span>
-                    <span style={{ fontWeight: 700 }}>{brl(it.qtd * it.precoUnit)}</span>
+                  <div key={it.produtoId} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13, gap: 8 }}>
+                    <span style={{ flex: 1 }}>{p?.nome}</span>
+                    <input
+                      type="number" value={it.qtd} onFocus={(e) => e.target.select()}
+                      onChange={(e) => definirQtd(it.produtoId, e.target.value)}
+                      style={{ width: 50, textAlign: "center", fontWeight: 800, fontSize: 13, border: `1px solid ${BORDER}`, borderRadius: 6, padding: "3px 2px" }}
+                    />
+                    <span style={{ fontWeight: 700, minWidth: 70, textAlign: "right" }}>{brl(it.qtd * it.precoUnit)}</span>
                   </div>
                 );
               })}
@@ -3962,6 +4232,20 @@ function ForcaDeVendas({ db, update, filialId }) {
               <button onClick={() => setTipoDocumento("venda")} style={{ flex: 1, padding: "12px", borderRadius: 10, border: `2px solid ${tipoDocumento === "venda" ? GREEN : BORDER}`, background: tipoDocumento === "venda" ? "#EAF3EC" : CARD, fontWeight: 800, cursor: "pointer", color: GREEN }}>Venda</button>
             </div>
             {tipoDocumento === "orcamento" && <div style={{ fontSize: 11.5, color: MUTED, marginTop: 8 }}>Orçamento não movimenta estoque nem financeiro — é só uma proposta para o cliente.</div>}
+          </Card>
+
+          <Card title="Entrega">
+            <div style={{ display: "flex", gap: 10 }}>
+              <button onClick={() => setTipoEntrega("retira")} style={{ flex: 1, padding: "12px", borderRadius: 10, border: `2px solid ${tipoEntrega === "retira" ? GREEN : BORDER}`, background: tipoEntrega === "retira" ? "#EAF3EC" : CARD, fontWeight: 800, cursor: "pointer", color: GREEN, fontSize: 12.5 }}>Cliente retira</button>
+              <button onClick={() => setTipoEntrega("entrega")} style={{ flex: 1, padding: "12px", borderRadius: 10, border: `2px solid ${tipoEntrega === "entrega" ? GOLD : BORDER}`, background: tipoEntrega === "entrega" ? "#FBF3DC" : CARD, fontWeight: 800, cursor: "pointer", color: GREEN, fontSize: 12.5 }}>Entrega própria</button>
+            </div>
+            {tipoEntrega === "retira" && <div style={{ fontSize: 11.5, color: MUTED, marginTop: 8 }}>Sem custo de frete — o cliente busca no local.</div>}
+            {tipoEntrega === "entrega" && (
+              <div style={{ marginTop: 10 }}>
+                <Field label="Valor do frete (R$) — pode deixar 0 se for cortesia"><TextInput type="number" step="0.01" value={valorFrete} onChange={(e) => setValorFrete(e.target.value)} /></Field>
+                <div style={{ fontSize: 11.5, color: MUTED, marginTop: 6 }}>Gera um lançamento em Logística — depois é só atribuir motorista e veículo por lá.</div>
+              </div>
+            )}
           </Card>
 
           {tipoDocumento === "venda" && (
@@ -4004,6 +4288,8 @@ function ForcaDeVendas({ db, update, filialId }) {
             <Button onClick={reiniciar} style={{ marginTop: 20 }}>Novo pedido</Button>
           </div>
         </Card>
+      )}
+        </>
       )}
     </div>
   );
