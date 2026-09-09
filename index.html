@@ -1501,6 +1501,7 @@ function ModuleView({ activeModule, db, update, conn, filialId, empresaId, usuar
             onChange={set("produtos")}
             fields={[
               { key: "nome", label: "Nome do produto", required: true },
+              { key: "controleTipo", label: "Tipo de controle", type: "select", options: [{ value: "venda", label: "Produto para venda (ovo, etc.)" }, { value: "almoxarifado", label: "Almoxarifado (uso interno)" }, { value: "imobilizado", label: "Imobilizado (bem de uso — pode ser vendido)" }] },
               { key: "tipo", label: "Tipo", type: "select", options: [{ value: "ovo", label: "Ovo" }, { value: "embalagem", label: "Embalagem" }, { value: "outro", label: "Outro" }] },
               { key: "unidade", label: "Unidade", type: "select", options: [{ value: "dz", label: "Dúzia" }, { value: "cx", label: "Caixa" }, { value: "un", label: "Unidade" }, { value: "kg", label: "Kg" }, { value: "ton", label: "Tonelada" }, { value: "l", label: "Litro" }, { value: "sc", label: "Saco" }] },
               { key: "custoUnit", label: "Custo unitário (R$)", type: "number" },
@@ -1512,15 +1513,23 @@ function ModuleView({ activeModule, db, update, conn, filialId, empresaId, usuar
             columns={[
               { key: "foto", label: "", render: (r) => (r.foto?.dataUrl ? <img src={r.foto.dataUrl} alt="" style={{ width: 32, height: 32, borderRadius: 6, objectFit: "cover" }} /> : "—") },
               { key: "nome", label: "Produto" },
+              {
+                key: "controleTipo", label: "Controle", render: (r) => {
+                  const rotulos = { venda: "Venda", almoxarifado: "Almoxarifado", imobilizado: "Imobilizado" };
+                  return rotulos[r.controleTipo] || "Venda";
+                },
+              },
               { key: "tipo", label: "Tipo" },
               { key: "unidade", label: "Unid." },
               { key: "custoUnit", label: "Custo", render: (r) => brl(r.custoUnit) },
               { key: "precoVenda", label: "Preço", render: (r) => brl(r.precoVenda) },
-              { key: "cfop", label: "CFOP" },
+              { key: "cfop", label: "CFOP", render: (r) => (r.controleTipo === "imobilizado" ? <span title="Se vendido, usa sempre 5551/6551 (venda de imobilizado), não este campo.">{r.cfop} *</span> : r.cfop) },
               { key: "residuo", label: "Resíduo", render: (r) => (r.residuo === true || r.residuo === "true" ? "Sim" : "Não") },
             ]}
           />
+          <div style={{ fontSize: 11, color: MUTED }}>* Itens marcados como Imobilizado usam sempre o CFOP 5551 (mesmo estado) ou 6551 (outro estado) quando vendidos — o campo CFOP acima não é usado nesse caso.</div>
           <LotesProduto db={db} update={update} filialId={filialId} />
+          <AlmoxarifadoMovimentacoes db={db} update={update} filialId={filialId} />
         </div>
       );
     case "vendas":
@@ -1638,9 +1647,15 @@ function urlQrCode(conteudo, tamanho = 220) {
      Revenda  + interestadual -> 6102
    Exceção — produto marcado como "resíduo" (ex.: esterco/cama de aviário):
    segue o entendimento de pareceres estaduais (ex.: GO) que tratam a venda
-   de resíduo/subproduto como 5102/6102, mesmo sendo produção própria. */
-function determinarCFOP(tipoEmpresa, ufOrigem, ufDestino, isResiduo) {
+   de resíduo/subproduto como 5102/6102, mesmo sendo produção própria.
+   Exceção — produto marcado como "imobilizado" (ex.: caminhão, câmera,
+   ferramenta usada na operação, vendida eventualmente): usa sempre o CFOP
+   próprio de venda de bem do ativo imobilizado — 5551 (mesmo estado) ou
+   6551 (outro estado) — nunca 5101/5102, independente do tipo de empresa.
+   ICMS normalmente não incide nessa operação (art. 3º da LC 87/96). */
+function determinarCFOP(tipoEmpresa, ufOrigem, ufDestino, isResiduo, isImobilizado) {
   const interestadual = !!ufOrigem && !!ufDestino && ufOrigem.trim().toUpperCase() !== ufDestino.trim().toUpperCase();
+  if (isImobilizado) return interestadual ? "6551" : "5551";
   const usarPadraoRevenda = isResiduo || tipoEmpresa === "revenda";
   if (usarPadraoRevenda) return interestadual ? "6102" : "5102";
   return interestadual ? "6101" : "5101"; // produtor, produto não é resíduo
@@ -2092,7 +2107,7 @@ function CadastroPessoa({ title, subtitle, items, onChange, filialId }) {
 
 function Vendas({ db, update, filialId }) {
   const isMobile = useIsMobile();
-  const produtos = db.produtos.filter((p) => p.filialId === filialId);
+  const produtos = db.produtos.filter((p) => p.filialId === filialId && p.controleTipo !== "almoxarifado");
   const vendedores = db.vendedores.filter((v) => v.filialId === filialId);
   const clientes = db.clientes.filter((c) => c.filialId === filialId);
   const centrosCusto = db.centrosCusto.filter((c) => c.filialId === filialId);
@@ -2103,7 +2118,8 @@ function Vendas({ db, update, filialId }) {
 
   const [form, setForm] = useState({ data: todayISO(), clienteId: "", vendedorId: "", produtoId: "", qtd: "", precoUnit: "", condicaoPagamento: "vista_pix", centroCustoId: "" });
   const clienteSelecionado = clientes.find((c) => c.id === form.clienteId);
-  const cfopPreview = determinarCFOP(empresa?.tipoEmpresa, filial?.uf, clienteSelecionado?.uf);
+  const produtoSelecionado = produtos.find((p) => p.id === form.produtoId);
+  const cfopPreview = determinarCFOP(empresa?.tipoEmpresa, filial?.uf, clienteSelecionado?.uf, ehSim(produtoSelecionado?.residuo), produtoSelecionado?.controleTipo === "imobilizado");
 
   function precoAoEscolher(produtoId) {
     const p = produtos.find((x) => x.id === produtoId);
@@ -2126,7 +2142,7 @@ function Vendas({ db, update, filialId }) {
     }
     const condicao = form.condicaoPagamento || "vista_pix";
     const parcelas = gerarParcelas(condicao, total, form.data);
-    const cfop = determinarCFOP(empresa?.tipoEmpresa, filial?.uf, clienteSelecionado?.uf);
+    const cfop = determinarCFOP(empresa?.tipoEmpresa, filial?.uf, clienteSelecionado?.uf, ehSim(produtoSelecionado?.residuo), produtoSelecionado?.controleTipo === "imobilizado");
     const venda = {
       id: uid(), filialId, data: form.data, clienteId: form.clienteId, vendedorId: form.vendedorId,
       itens: [{ produtoId: form.produtoId, qtd: Number(form.qtd), precoUnit: Number(form.precoUnit), cfop }],
@@ -2291,6 +2307,91 @@ function lotesFEFO(db, filialId, produtoId) {
 
 /* Cadastro de lotes de produção — cada lote é um registro separado, com sua
    própria validade, permitindo vários lotes em aberto para um mesmo produto. */
+/* Controle de entrada/saída dos itens marcados como "Almoxarifado" (uso
+   interno — limpeza, peças, ferramentas, material de escritório etc.).
+   Fica separado do estoque de produtos para venda: aqui não é venda,
+   é consumo — a saída pode virar despesa administrativa se você marcar. */
+function AlmoxarifadoMovimentacoes({ db, update, filialId }) {
+  const itensAlmoxarifado = db.produtos.filter((p) => p.filialId === filialId && p.controleTipo === "almoxarifado");
+  const movimentacoes = db.movimentacoesEstoque.filter((m) => m.filialId === filialId && itensAlmoxarifado.some((p) => p.id === m.produtoId));
+  const centrosCusto = db.centrosCusto.filter((c) => c.filialId === filialId);
+
+  const [form, setForm] = useState({ produtoId: "", tipo: "saida", quantidade: "", motivo: "", centroCustoId: "", gerarDespesa: "false", valorDespesa: "" });
+
+  const saldoPorItem = {};
+  movimentacoes.forEach((m) => {
+    const delta = m.tipo === "entrada" ? Number(m.qtd || 0) : -Number(m.qtd || 0);
+    saldoPorItem[m.produtoId] = (saldoPorItem[m.produtoId] || 0) + delta;
+  });
+
+  function registrar(e) {
+    e.preventDefault();
+    if (!form.produtoId || !Number(form.quantidade)) return;
+    const movId = uid();
+    update((prev) => {
+      const novaMov = { id: movId, filialId, data: todayISO(), produtoId: form.produtoId, tipo: form.tipo, qtd: Number(form.quantidade), motivo: form.motivo || (form.tipo === "saida" ? "Consumo interno" : "Reposição de almoxarifado") };
+      const gerarDespesa = form.gerarDespesa === "true" && form.tipo === "saida" && Number(form.valorDespesa) > 0;
+      const contaNova = gerarDespesa ? [{
+        id: uid(), filialId, tipo: "pagar",
+        descricao: `Almoxarifado — ${db.produtos.find((p) => p.id === form.produtoId)?.nome || "item"} (${form.motivo || "consumo"})`,
+        valor: Number(form.valorDespesa), vencimento: todayISO(), centroCustoId: form.centroCustoId || "", status: "pago",
+      }] : [];
+      return {
+        ...prev,
+        movimentacoesEstoque: [...prev.movimentacoesEstoque, novaMov],
+        contasAvulsas: [...prev.contasAvulsas, ...contaNova],
+      };
+    });
+    setForm({ produtoId: "", tipo: "saida", quantidade: "", motivo: "", centroCustoId: "", gerarDespesa: "false", valorDespesa: "" });
+  }
+
+  if (!itensAlmoxarifado.length) {
+    return (
+      <Card title="Almoxarifado" subtitle="Nenhum produto está marcado como 'Almoxarifado' ainda. Marque acima os itens de uso interno (limpeza, peças, ferramentas etc.) pra controlar entrada e saída aqui.">
+        <div />
+      </Card>
+    );
+  }
+
+  return (
+    <Card title="Almoxarifado — entrada e saída (uso interno)" subtitle="Separado do estoque de produtos para venda — aqui é consumo, não venda.">
+      <form onSubmit={registrar} style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, alignItems: "end", marginBottom: 16 }}>
+        <Field label="Item"><Select options={itensAlmoxarifado.map((p) => ({ value: p.id, label: p.nome }))} value={form.produtoId} onChange={(e) => setForm({ ...form, produtoId: e.target.value })} /></Field>
+        <Field label="Movimento"><Select options={[{ value: "saida", label: "Saída (consumo)" }, { value: "entrada", label: "Entrada (reposição/compra)" }]} value={form.tipo} onChange={(e) => setForm({ ...form, tipo: e.target.value })} /></Field>
+        <Field label="Quantidade"><TextInput type="number" value={form.quantidade} onChange={(e) => setForm({ ...form, quantidade: e.target.value })} /></Field>
+        <Field label="Motivo"><TextInput placeholder="ex.: limpeza do galpão 3" value={form.motivo} onChange={(e) => setForm({ ...form, motivo: e.target.value })} /></Field>
+        <Field label="Centro de custo"><Select options={centrosCusto.map((c) => ({ value: c.id, label: c.nome }))} value={form.centroCustoId} onChange={(e) => setForm({ ...form, centroCustoId: e.target.value })} /></Field>
+        {form.tipo === "saida" && (
+          <Field label="Gerar despesa?"><Select options={[{ value: "false", label: "Não" }, { value: "true", label: "Sim" }]} value={form.gerarDespesa} onChange={(e) => setForm({ ...form, gerarDespesa: e.target.value })} /></Field>
+        )}
+        {form.tipo === "saida" && form.gerarDespesa === "true" && (
+          <Field label="Valor da despesa (R$)"><TextInput type="number" step="0.01" value={form.valorDespesa} onChange={(e) => setForm({ ...form, valorDespesa: e.target.value })} /></Field>
+        )}
+        <div style={{ gridColumn: "1 / -1" }}><Button type="submit">Registrar</Button></div>
+      </form>
+      <Table
+        columns={[
+          { key: "nome", label: "Item" },
+          { key: "saldo", label: "Saldo atual", render: (r) => (saldoPorItem[r.id] || 0).toLocaleString("pt-BR") },
+        ]}
+        rows={itensAlmoxarifado}
+      />
+      <div style={{ height: 1, background: BORDER, margin: "14px 0" }} />
+      <Table
+        columns={[
+          { key: "data", label: "Data" },
+          { key: "produtoId", label: "Item", render: (r) => itensAlmoxarifado.find((p) => p.id === r.produtoId)?.nome || "—" },
+          { key: "tipo", label: "Tipo", render: (r) => (r.tipo === "entrada" ? "Entrada" : "Saída") },
+          { key: "qtd", label: "Qtd.", render: (r) => Number(r.qtd || 0).toLocaleString("pt-BR") },
+          { key: "motivo", label: "Motivo" },
+        ]}
+        rows={[...movimentacoes].sort((a, b) => (a.data < b.data ? 1 : -1)).slice(0, 30)}
+        emptyText="Nenhuma movimentação de almoxarifado registrada ainda."
+      />
+    </Card>
+  );
+}
+
 function LotesProduto({ db, update, filialId }) {
   const produtos = db.produtos.filter((p) => p.filialId === filialId);
   const lotes = db.lotesProduto.filter((l) => l.filialId === filialId);
@@ -2938,7 +3039,7 @@ function Contabilidade({ db, filialId }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <div style={{ background: "#FBF3DC", border: `1px solid ${GOLD_LIGHT}`, borderRadius: 10, padding: "10px 14px", fontSize: 12.5, color: "#6B5410" }}>
-        Demonstrações calculadas automaticamente a partir dos lançamentos de Vendas, Compras, Logística e Contas Avulsas desta filial — regime de caixa simplificado, para fins gerenciais.
+        Demonstrações calculadas automaticamente a partir dos lançamentos de Vendas, Compras, Logística e Contas Avulsas desta filial — regime de caixa simplificado, para fins gerenciais. Não substitui a escrituração contábil oficial.
       </div>
       <div style={{ display: "grid", gridTemplateColumns: gridCols(isMobile, "1fr 1fr"), gap: 16 }}>
         <Card title="DRE — Demonstrativo de Resultado">
@@ -4100,7 +4201,7 @@ function OrcamentosLista({ db, update, filialId }) {
     const parcelas = gerarParcelas(orc.condicaoPagamento || "boleto_30", orc.total, todayISO());
     const itensComCfop = orc.itens.map((it) => {
       const prod = produtos.find((p) => p.id === it.produtoId);
-      const cfop = determinarCFOP(empresa?.tipoEmpresa, filial?.uf, cliente?.uf, ehSim(prod?.residuo));
+      const cfop = determinarCFOP(empresa?.tipoEmpresa, filial?.uf, cliente?.uf, ehSim(prod?.residuo), prod?.controleTipo === "imobilizado");
       return { produtoId: it.produtoId, qtd: it.qtd, precoUnit: it.precoUnit, cfop, loteId: it.loteId || "" };
     });
     const venda = {
@@ -4160,7 +4261,7 @@ function OrcamentosLista({ db, update, filialId }) {
 }
 
 function ForcaDeVendas({ db, update, filialId }) {
-  const produtos = db.produtos.filter((p) => p.filialId === filialId);
+  const produtos = db.produtos.filter((p) => p.filialId === filialId && p.controleTipo !== "almoxarifado");
   const clientes = db.clientes.filter((c) => c.filialId === filialId);
   const vendedoresAtivos = db.vendedores.filter((v) => v.filialId === filialId && v.ativo !== false && v.ativo !== "false");
   const empresa = db.empresas.find((e) => e.filiais.some((f) => f.id === filialId));
@@ -4289,7 +4390,7 @@ function ForcaDeVendas({ db, update, filialId }) {
     const parcelas = gerarParcelas(condicaoPagamento, total, todayISO());
     const itensComCfop = carrinho.map((it) => {
       const prod = produtos.find((p) => p.id === it.produtoId);
-      const cfop = determinarCFOP(empresa?.tipoEmpresa, filial?.uf, cliente?.uf, ehSim(prod?.residuo));
+      const cfop = determinarCFOP(empresa?.tipoEmpresa, filial?.uf, cliente?.uf, ehSim(prod?.residuo), prod?.controleTipo === "imobilizado");
       return { produtoId: it.produtoId, qtd: it.qtd, precoUnit: it.precoUnit, cfop, loteId: it.loteId || "" };
     });
     const venda = {
