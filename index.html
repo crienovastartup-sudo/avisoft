@@ -279,6 +279,29 @@ function brl(v) {
   return n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
+/* ---------------- responsividade: celular vs. tablet/desktop ---------------- */
+
+const MOBILE_BREAKPOINT = 768; // abaixo disso = celular; tablets (iPad ~768-1024) e acima mantêm o layout atual
+const IsMobileContext = React.createContext(false);
+function useIsMobile() { return React.useContext(IsMobileContext); }
+
+function useViewportIsMobile() {
+  const [isMobile, setIsMobile] = useState(() => (typeof window !== "undefined" ? window.innerWidth < MOBILE_BREAKPOINT : false));
+  useEffect(() => {
+    function onResize() { setIsMobile(window.innerWidth < MOBILE_BREAKPOINT); }
+    window.addEventListener("resize", onResize);
+    onResize();
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+  return isMobile;
+}
+
+/* Colapsa uma grade de N colunas para 1 coluna só no celular; no tablet/desktop
+   mantém o layout original passado em `desktop`. */
+function gridCols(isMobile, desktop) {
+  return isMobile ? "1fr" : desktop;
+}
+
 function todayISO() {
   return new Date().toISOString().slice(0, 10);
 }
@@ -484,8 +507,9 @@ function Card({ title, subtitle, right, children, style }) {
 }
 
 function StatCard({ label, value, accent }) {
+  const isMobile = useIsMobile();
   return (
-    <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderLeft: `4px solid ${accent || GOLD}`, borderRadius: 10, padding: "14px 16px", minWidth: 180, flex: 1 }}>
+    <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderLeft: `4px solid ${accent || GOLD}`, borderRadius: 10, padding: "14px 16px", minWidth: isMobile ? 140 : 180, flex: 1 }}>
       <div style={{ fontSize: 11.5, color: MUTED, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.4 }}>{label}</div>
       <div style={{ fontSize: 22, fontWeight: 800, color: GREEN, marginTop: 4 }}>{value}</div>
     </div>
@@ -704,6 +728,7 @@ function Danfe({ venda, empresa, filial, cliente, produtos }) {
    across the simpler registration modules (produtos, clientes,
    vendedores, fornecedores, motoristas, veículos…). */
 function CrudBlock({ title, subtitle, fields, items, onChange, columns, filialId }) {
+  const isMobile = useIsMobile();
   const blank = () => {
     const o = { id: null, filialId };
     fields.forEach((f) => (o[f.key] = f.type === "number" ? "" : ""));
@@ -730,7 +755,7 @@ function CrudBlock({ title, subtitle, fields, items, onChange, columns, filialId
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <Card title={title} subtitle={subtitle}>
-        <form onSubmit={submit} style={{ display: "grid", gridTemplateColumns: `repeat(${Math.min(fields.length, 4)}, 1fr)`, gap: 12, alignItems: "end" }}>
+        <form onSubmit={submit} style={{ display: "grid", gridTemplateColumns: gridCols(isMobile, `repeat(${Math.min(fields.length, 4)}, 1fr)`), gap: 12, alignItems: "end" }}>
           {fields.map((f) => (
             <Field label={f.label} key={f.key}>
               {f.type === "select" ? (
@@ -800,10 +825,13 @@ class ErrorBoundary extends Component {
    ============================================================ */
 
 export default function AvisoftRoot() {
+  const isMobile = useViewportIsMobile();
   return (
-    <ErrorBoundary>
-      <AvisoftApp />
-    </ErrorBoundary>
+    <IsMobileContext.Provider value={isMobile}>
+      <ErrorBoundary>
+        <AvisoftApp />
+      </ErrorBoundary>
+    </IsMobileContext.Provider>
   );
 }
 
@@ -863,6 +891,7 @@ function AvisoftApp() {
   const [session, setSession] = useState(null); // { usuarioId, empresaId, filialId }
   const [activeModule, setActiveModule] = useState("inicio");
   const lastSynced = useRef(null); // último db confirmado como salvo, para diff nas próximas gravações
+  const isMobile = useIsMobile();
 
   useEffect(() => {
     loadConnection().then((c) => setConn(c));
@@ -935,7 +964,7 @@ function AvisoftApp() {
   const canSee = (key) => usuario?.admin || (usuario?.permissoes || []).includes(key);
 
   return (
-    <div style={shell()}>
+    <div style={shell(isMobile)}>
       <AlertaFasesLote db={db} update={update} filialId={session.filialId} />
       {saveError && (
         <div style={{ position: "fixed", top: 10, right: 10, background: DANGER, color: "#fff", padding: "8px 14px", borderRadius: 8, fontSize: 12.5, zIndex: 50, maxWidth: 360 }}>
@@ -953,7 +982,7 @@ function AvisoftApp() {
         usuario={usuario}
         onLogout={() => setSession(null)}
       />
-      <main style={{ flex: 1, padding: "22px 26px", overflowY: "auto" }}>
+      <main style={{ flex: 1, padding: isMobile ? "14px 12px" : "22px 26px", overflowY: "auto", minWidth: 0 }}>
         <ModuleView
           activeModule={activeModule}
           db={db}
@@ -968,9 +997,10 @@ function AvisoftApp() {
   );
 }
 
-function shell() {
+function shell(isMobile) {
   return {
     display: "flex",
+    flexDirection: isMobile ? "column" : "row",
     minHeight: "100%",
     background: BG,
     color: INK,
@@ -1005,7 +1035,7 @@ function ConexaoSetup({ onConectado }) {
 
   return (
     <div style={{ ...shell(), justifyContent: "center", alignItems: "center" }}>
-      <form onSubmit={testarEConectar} style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 14, padding: 32, width: 560, display: "flex", flexDirection: "column", gap: 16 }}>
+      <form onSubmit={testarEConectar} style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 14, padding: 32, width: 560, maxWidth: "92vw", display: "flex", flexDirection: "column", gap: 16 }}>
         <div>
           <div style={{ fontSize: 12, fontWeight: 800, color: GOLD, letterSpacing: 1 }}>CONECTAR AO</div>
           <div style={{ fontSize: 26, fontWeight: 800, color: GREEN }}>Google Sheets</div>
@@ -1025,6 +1055,7 @@ function ConexaoSetup({ onConectado }) {
 }
 
 function Onboarding({ onCreate }) {
+  const isMobile = useIsMobile();
   const [form, setForm] = useState({ nome: "", cnpj: "", endereco: "", telefone: "", responsavel: "", adminNome: "", adminLogin: "", adminSenha: "" });
   const [erro, setErro] = useState("");
   const [enviando, setEnviando] = useState(false);
@@ -1074,13 +1105,13 @@ function Onboarding({ onCreate }) {
 
   return (
     <div style={{ ...shell(), justifyContent: "center", alignItems: "center" }}>
-      <form onSubmit={submit} style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 14, padding: 32, width: 520, display: "flex", flexDirection: "column", gap: 16 }}>
+      <form onSubmit={submit} style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 14, padding: 32, width: 520, maxWidth: "92vw", display: "flex", flexDirection: "column", gap: 16 }}>
         <div>
           <div style={{ fontSize: 12, fontWeight: 800, color: GOLD, letterSpacing: 1 }}>BEM-VINDO AO</div>
           <div style={{ fontSize: 26, fontWeight: 800, color: GREEN }}>AVISOFT</div>
           <div style={{ fontSize: 12.5, color: MUTED, marginTop: 4 }}>Vamos cadastrar sua empresa e o primeiro usuário administrador.</div>
         </div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        <div style={{ display: "grid", gridTemplateColumns: gridCols(isMobile, "1fr 1fr"), gap: 12 }}>
           <Field label="Nome da empresa"><TextInput value={form.nome} onChange={(e) => setForm({ ...form, nome: e.target.value })} /></Field>
           <Field label="CNPJ"><TextInput value={form.cnpj} onChange={(e) => setForm({ ...form, cnpj: e.target.value })} /></Field>
           <Field label="Endereço"><TextInput value={form.endereco} onChange={(e) => setForm({ ...form, endereco: e.target.value })} /></Field>
@@ -1089,7 +1120,7 @@ function Onboarding({ onCreate }) {
         </div>
         <div style={{ height: 1, background: BORDER, margin: "4px 0" }} />
         <div style={{ fontSize: 13, fontWeight: 700, color: GREEN }}>Usuário administrador</div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+        <div style={{ display: "grid", gridTemplateColumns: gridCols(isMobile, "1fr 1fr 1fr"), gap: 12 }}>
           <Field label="Nome"><TextInput value={form.adminNome} onChange={(e) => setForm({ ...form, adminNome: e.target.value })} /></Field>
           <Field label="Login"><TextInput value={form.adminLogin} onChange={(e) => setForm({ ...form, adminLogin: e.target.value })} /></Field>
           <Field label="Senha"><TextInput type="password" value={form.adminSenha} onChange={(e) => setForm({ ...form, adminSenha: e.target.value })} /></Field>
@@ -1121,7 +1152,7 @@ function Login({ db, onLogin }) {
 
   return (
     <div style={{ ...shell(), justifyContent: "center", alignItems: "center" }}>
-      <form onSubmit={submit} style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 14, padding: 32, width: 360, display: "flex", flexDirection: "column", gap: 14 }}>
+      <form onSubmit={submit} style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 14, padding: 32, width: 360, maxWidth: "92vw", display: "flex", flexDirection: "column", gap: 14 }}>
         <div style={{ fontSize: 26, fontWeight: 800, color: GREEN }}>AVISOFT</div>
         <div style={{ fontSize: 12.5, color: MUTED, marginBottom: 6 }}>Entre com seu usuário e senha.</div>
         <Field label="Login"><TextInput autoFocus value={login} onChange={(e) => setLogin(e.target.value)} /></Field>
@@ -1136,8 +1167,11 @@ function Login({ db, onLogin }) {
 /* ---------------- Sidebar ---------------- */
 
 function Sidebar({ modules, active, onSelect, empresa, filial, empresas, onSwitchFilial, usuario, onLogout }) {
-  return (
-    <aside style={{ width: 250, background: GREEN, color: "#fff", display: "flex", flexDirection: "column", flexShrink: 0 }}>
+  const isMobile = useIsMobile();
+  const [aberto, setAberto] = useState(false);
+
+  const conteudo = (
+    <>
       <div style={{ padding: "20px 18px 14px" }}>
         <div style={{ fontSize: 20, fontWeight: 800, letterSpacing: 0.5 }}>AVI<span style={{ color: GOLD }}>SOFT</span></div>
         <div style={{ fontSize: 10.5, color: "#B7C9BE", marginTop: 2, letterSpacing: 0.5 }}>GESTÃO DE GRANJA DE POSTURA</div>
@@ -1157,7 +1191,7 @@ function Sidebar({ modules, active, onSelect, empresa, filial, empresas, onSwitc
         {modules.map((m) => (
           <button
             key={m.key}
-            onClick={() => onSelect(m.key)}
+            onClick={() => { onSelect(m.key); if (isMobile) setAberto(false); }}
             style={{
               display: "flex", alignItems: "center", gap: 10, width: "100%", textAlign: "left",
               padding: "9px 10px", marginBottom: 2, borderRadius: 8, border: "none", cursor: "pointer",
@@ -1176,7 +1210,38 @@ function Sidebar({ modules, active, onSelect, empresa, filial, empresas, onSwitc
         <div style={{ fontSize: 10.5, color: "#B7C9BE", marginBottom: 8 }}>{usuario?.admin ? "Administrador" : "Usuário"}</div>
         <button onClick={onLogout} style={{ background: "none", border: `1px solid ${GREEN_LIGHT}`, color: "#EAF0EC", borderRadius: 8, padding: "6px 10px", fontSize: 12, cursor: "pointer", width: "100%" }}>Sair</button>
       </div>
-    </aside>
+    </>
+  );
+
+  if (!isMobile) {
+    return (
+      <aside style={{ width: 250, background: GREEN, color: "#fff", display: "flex", flexDirection: "column", flexShrink: 0 }}>
+        {conteudo}
+      </aside>
+    );
+  }
+
+  // Celular: barra superior fixa com botão de menu + gaveta deslizante por cima do conteúdo.
+  return (
+    <>
+      <div style={{ position: "sticky", top: 0, zIndex: 30, background: GREEN, color: "#fff", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px" }}>
+        <div style={{ fontSize: 17, fontWeight: 800 }}>AVI<span style={{ color: GOLD }}>SOFT</span></div>
+        <button onClick={() => setAberto(true)} style={{ background: "none", border: `1px solid ${GREEN_LIGHT}`, color: "#fff", borderRadius: 8, padding: "6px 12px", fontSize: 18, cursor: "pointer" }} aria-label="Abrir menu">☰</button>
+      </div>
+      {aberto && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(15,42,29,0.55)", zIndex: 40 }} onClick={() => setAberto(false)}>
+          <aside
+            style={{ width: "80%", maxWidth: 300, height: "100%", background: GREEN, color: "#fff", display: "flex", flexDirection: "column", boxShadow: "4px 0 20px rgba(0,0,0,0.3)" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: "flex", justifyContent: "flex-end", padding: "10px 14px 0" }}>
+              <button onClick={() => setAberto(false)} style={{ background: "none", border: "none", color: "#fff", fontSize: 22, cursor: "pointer", lineHeight: 1 }}>×</button>
+            </div>
+            {conteudo}
+          </aside>
+        </div>
+      )}
+    </>
   );
 }
 
@@ -1269,6 +1334,7 @@ function mergeByFilial(all, editedSubset, filialId) {
 /* ---------------- Início / Dashboard ---------------- */
 
 function Inicio({ db, filialId }) {
+  const isMobile = useIsMobile();
   const vendas = db.vendas.filter((v) => v.filialId === filialId);
   const compras = db.compras.filter((c) => c.filialId === filialId);
   const fretes = db.fretes.filter((f) => f.filialId === filialId);
@@ -1357,7 +1423,7 @@ function Inicio({ db, filialId }) {
         <StatCard label="Despesas lançadas" value={brl(totalDespesas)} accent={MUTED} />
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+      <div style={{ display: "grid", gridTemplateColumns: gridCols(isMobile, "1fr 1fr"), gap: 16 }}>
         <Card title="Vendas — últimos 6 meses">
           <BarChart data={vendasPorMes} formatValue={(v) => (v >= 1000 ? `${(v / 1000).toFixed(0)}k` : brl(v))} />
         </Card>
@@ -1366,7 +1432,7 @@ function Inicio({ db, filialId }) {
         </Card>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16 }}>
+      <div style={{ display: "grid", gridTemplateColumns: gridCols(isMobile, "1fr 1fr 1fr"), gap: 16 }}>
         <Card title="Vendedor em destaque">
           {vendedorDestaque ? (
             <div>
@@ -1445,6 +1511,7 @@ function ParcelasList({ parcelas, onStatusChange }) {
 /* ---------------- Cadastro Empresa & Filiais ---------------- */
 
 function CadastroEmpresa({ db, update, empresaId }) {
+  const isMobile = useIsMobile();
   const empresa = db.empresas.find((e) => e.id === empresaId);
   const [form, setForm] = useState(empresa);
   const [novaFilial, setNovaFilial] = useState({ nome: "", endereco: "" });
@@ -1475,7 +1542,7 @@ function CadastroEmpresa({ db, update, empresaId }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <Card title="Dados da empresa" subtitle="Essas informações aparecem em relatórios e documentos fiscais.">
-        <form onSubmit={salvar} style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        <form onSubmit={salvar} style={{ display: "grid", gridTemplateColumns: gridCols(isMobile, "1fr 1fr"), gap: 12 }}>
           <Field label="Nome"><TextInput value={form.nome} onChange={(e) => setForm({ ...form, nome: e.target.value })} /></Field>
           <Field label="CNPJ"><TextInput value={form.cnpj} onChange={(e) => setForm({ ...form, cnpj: e.target.value })} /></Field>
           <Field label="Endereço"><TextInput value={form.endereco} onChange={(e) => setForm({ ...form, endereco: e.target.value })} /></Field>
@@ -1504,6 +1571,7 @@ function CadastroEmpresa({ db, update, empresaId }) {
 /* ---------------- Usuários & Permissões ---------------- */
 
 function Usuarios({ db, update, empresaId }) {
+  const isMobile = useIsMobile();
   const usuarios = db.usuarios.filter((u) => u.empresaId === empresaId);
   const blank = { id: null, nome: "", login: "", senha: "", admin: false, permissoes: [], ativo: true };
   const [draft, setDraft] = useState(blank);
@@ -1542,7 +1610,7 @@ function Usuarios({ db, update, empresaId }) {
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <Card title={editing ? "Editar usuário" : "Novo usuário"} subtitle="Defina quais módulos cada pessoa pode acessar. As senhas são armazenadas com hash (SHA-256), nunca em texto puro.">
         <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+          <div style={{ display: "grid", gridTemplateColumns: gridCols(isMobile, "1fr 1fr 1fr"), gap: 12 }}>
             <Field label="Nome"><TextInput value={draft.nome} onChange={(e) => setDraft({ ...draft, nome: e.target.value })} /></Field>
             <Field label="Login"><TextInput value={draft.login} onChange={(e) => setDraft({ ...draft, login: e.target.value })} /></Field>
             <Field label={editing ? "Nova senha (deixe em branco para manter)" : "Senha"}><TextInput type="password" value={draft.senha || ""} onChange={(e) => setDraft({ ...draft, senha: e.target.value })} /></Field>
@@ -1594,6 +1662,7 @@ function linkBtnStyle(color) {
 
 /* Cadastro completo de Cliente/Fornecedor para fins fiscais, com anexo de documentos. */
 function CadastroPessoa({ title, subtitle, items, onChange, filialId }) {
+  const isMobile = useIsMobile();
   const blank = { id: null, razaoSocial: "", cpfCnpj: "", inscricaoEstadual: "", endereco: "", numero: "", bairro: "", cidade: "", uf: "", telefone1: "", telefone2: "", email1: "", email2: "", responsavel: "", anexos: [] };
   const [draft, setDraft] = useState(blank);
   const editing = !!draft.id;
@@ -1624,21 +1693,21 @@ function CadastroPessoa({ title, subtitle, items, onChange, filialId }) {
   return (
     <Card title={title} subtitle={subtitle}>
       <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-        <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: 10 }}>
+        <div style={{ display: "grid", gridTemplateColumns: gridCols(isMobile, "2fr 1fr 1fr"), gap: 10 }}>
           <Field label="Razão social / Nome"><TextInput value={draft.razaoSocial} onChange={(e) => setDraft({ ...draft, razaoSocial: e.target.value })} /></Field>
           <Field label="CPF / CNPJ"><TextInput value={draft.cpfCnpj} onChange={(e) => setDraft({ ...draft, cpfCnpj: e.target.value })} /></Field>
           <Field label="Inscrição estadual"><TextInput value={draft.inscricaoEstadual} onChange={(e) => setDraft({ ...draft, inscricaoEstadual: e.target.value })} /></Field>
         </div>
-        <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: 10 }}>
+        <div style={{ display: "grid", gridTemplateColumns: gridCols(isMobile, "2fr 1fr 1fr"), gap: 10 }}>
           <Field label="Endereço"><TextInput value={draft.endereco} onChange={(e) => setDraft({ ...draft, endereco: e.target.value })} /></Field>
           <Field label="Número"><TextInput value={draft.numero} onChange={(e) => setDraft({ ...draft, numero: e.target.value })} /></Field>
           <Field label="Bairro"><TextInput value={draft.bairro} onChange={(e) => setDraft({ ...draft, bairro: e.target.value })} /></Field>
         </div>
-        <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 10 }}>
+        <div style={{ display: "grid", gridTemplateColumns: gridCols(isMobile, "2fr 1fr"), gap: 10 }}>
           <Field label="Cidade"><TextInput value={draft.cidade} onChange={(e) => setDraft({ ...draft, cidade: e.target.value })} /></Field>
           <Field label="UF"><TextInput maxLength={2} value={draft.uf} onChange={(e) => setDraft({ ...draft, uf: e.target.value.toUpperCase() })} /></Field>
         </div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 10 }}>
+        <div style={{ display: "grid", gridTemplateColumns: gridCols(isMobile, "1fr 1fr 1fr 1fr"), gap: 10 }}>
           <Field label="Telefone 1"><TextInput value={draft.telefone1} onChange={(e) => setDraft({ ...draft, telefone1: e.target.value })} /></Field>
           <Field label="Telefone 2"><TextInput value={draft.telefone2} onChange={(e) => setDraft({ ...draft, telefone2: e.target.value })} /></Field>
           <Field label="E-mail 1"><TextInput type="email" value={draft.email1} onChange={(e) => setDraft({ ...draft, email1: e.target.value })} /></Field>
@@ -1682,6 +1751,7 @@ function CadastroPessoa({ title, subtitle, items, onChange, filialId }) {
 }
 
 function Vendas({ db, update, filialId }) {
+  const isMobile = useIsMobile();
   const produtos = db.produtos.filter((p) => p.filialId === filialId);
   const vendedores = db.vendedores.filter((v) => v.filialId === filialId);
   const clientes = db.clientes.filter((c) => c.filialId === filialId);
@@ -1784,7 +1854,7 @@ function Vendas({ db, update, filialId }) {
       />
 
       <Card title="Lançar venda" subtitle="Gera parcelas conforme a condição de pagamento, alimenta contas a receber, comissões e a DRE.">
-        <form onSubmit={lancarVenda} style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, alignItems: "end" }}>
+        <form onSubmit={lancarVenda} style={{ display: "grid", gridTemplateColumns: gridCols(isMobile, "repeat(4, 1fr)"), gap: 10, alignItems: "end" }}>
           <Field label="Data"><TextInput type="date" value={form.data} onChange={(e) => setForm({ ...form, data: e.target.value })} /></Field>
           <Field label="Cliente"><Select options={clientes.map((c) => ({ value: c.id, label: c.razaoSocial }))} value={form.clienteId} onChange={(e) => setForm({ ...form, clienteId: e.target.value })} /></Field>
           <Field label="Vendedor"><Select options={vendedores.map((v) => ({ value: v.id, label: v.apelido || v.nomeCompleto }))} value={form.vendedorId} onChange={(e) => setForm({ ...form, vendedorId: e.target.value })} /></Field>
@@ -1897,6 +1967,7 @@ function Estoque({ db, filialId }) {
 /* ---------------- Fábrica de Ração ---------------- */
 
 function FabricaRacao({ db, update, filialId }) {
+  const isMobile = useIsMobile();
   const formulacoes = db.formulacoes.filter((f) => f.filialId === filialId);
   const producoes = db.producoesRacao.filter((p) => p.filialId === filialId);
   const galpoes = db.galpoes.filter((g) => g.filialId === filialId);
@@ -1943,7 +2014,7 @@ function FabricaRacao({ db, update, filialId }) {
         <form onSubmit={salvarFormula} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           <Field label="Nome da formulação"><TextInput value={nomeFormula} onChange={(e) => setNomeFormula(e.target.value)} /></Field>
           {ingredientes.map((ing, i) => (
-            <div key={i} style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr auto", gap: 10 }}>
+            <div key={i} style={{ display: "grid", gridTemplateColumns: gridCols(isMobile, "2fr 1fr 1fr auto"), gap: 10 }}>
               <TextInput placeholder="Ingrediente (ex: milho)" value={ing.nome} onChange={(e) => updLinha(i, { nome: e.target.value })} />
               <TextInput placeholder="% na mistura" type="number" value={ing.percentual} onChange={(e) => updLinha(i, { percentual: e.target.value })} />
               <TextInput placeholder="Custo/kg (R$)" type="number" step="0.01" value={ing.custoKg} onChange={(e) => updLinha(i, { custoKg: e.target.value })} />
@@ -1969,7 +2040,7 @@ function FabricaRacao({ db, update, filialId }) {
       </Card>
 
       <Card title="Registrar produção" subtitle="Baixa o custo calculado da formulação, converte em sacos e alimenta o estoque de ração.">
-        <form onSubmit={lancarProducao} style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, alignItems: "end" }}>
+        <form onSubmit={lancarProducao} style={{ display: "grid", gridTemplateColumns: gridCols(isMobile, "repeat(3, 1fr)"), gap: 10, alignItems: "end" }}>
           <Field label="Data"><TextInput type="date" value={prod.data} onChange={(e) => setProd({ ...prod, data: e.target.value })} /></Field>
           <Field label="Formulação"><Select options={formulacoes.map((f) => ({ value: f.id, label: f.nome }))} value={prod.formulacaoId} onChange={(e) => setProd({ ...prod, formulacaoId: e.target.value })} /></Field>
           <Field label="Moega / silo de origem"><TextInput value={prod.moega} onChange={(e) => setProd({ ...prod, moega: e.target.value })} /></Field>
@@ -2050,6 +2121,7 @@ function parseNFeXML(xmlText) {
 }
 
 function Compras({ db, update, filialId }) {
+  const isMobile = useIsMobile();
   const fornecedores = db.fornecedores.filter((f) => f.filialId === filialId);
   const compras = db.compras.filter((c) => c.filialId === filialId);
   const produtos = db.produtos.filter((p) => p.filialId === filialId);
@@ -2152,7 +2224,7 @@ function Compras({ db, update, filialId }) {
       </Card>
 
       <Card title="Lançar compra manual" subtitle="Gera parcelas conforme a condição de pagamento e alimenta a DRE como despesa.">
-        <form onSubmit={lancar} style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, alignItems: "end" }}>
+        <form onSubmit={lancar} style={{ display: "grid", gridTemplateColumns: gridCols(isMobile, "repeat(4, 1fr)"), gap: 10, alignItems: "end" }}>
           <Field label="Data"><TextInput type="date" value={form.data} onChange={(e) => setForm({ ...form, data: e.target.value })} /></Field>
           <Field label="Fornecedor"><Select options={fornecedores.map((f) => ({ value: f.id, label: f.razaoSocial }))} value={form.fornecedorId} onChange={(e) => setForm({ ...form, fornecedorId: e.target.value })} /></Field>
           <Field label="Categoria">
@@ -2187,6 +2259,7 @@ function Compras({ db, update, filialId }) {
 /* ---------------- Financeiro ---------------- */
 
 function Financeiro({ db, update, filialId }) {
+  const isMobile = useIsMobile();
   const vendas = db.vendas.filter((v) => v.filialId === filialId);
   const compras = db.compras.filter((c) => c.filialId === filialId);
   const fretes = db.fretes.filter((f) => f.filialId === filialId);
@@ -2241,7 +2314,7 @@ function Financeiro({ db, update, filialId }) {
       </div>
 
       <Card title="Lançar conta avulsa" subtitle="Para lançamentos de contas a pagar ou a receber que não vêm de uma venda ou compra.">
-        <form onSubmit={lancarAvulsa} style={{ display: "grid", gridTemplateColumns: "1fr 2fr 1fr 1fr 1fr", gap: 10, alignItems: "end" }}>
+        <form onSubmit={lancarAvulsa} style={{ display: "grid", gridTemplateColumns: gridCols(isMobile, "1fr 2fr 1fr 1fr 1fr"), gap: 10, alignItems: "end" }}>
           <Field label="Tipo"><Select options={[{ value: "pagar", label: "Conta a pagar" }, { value: "receber", label: "Conta a receber" }]} value={form.tipo} onChange={(e) => setForm({ ...form, tipo: e.target.value })} /></Field>
           <Field label="Descrição"><TextInput value={form.descricao} onChange={(e) => setForm({ ...form, descricao: e.target.value })} /></Field>
           <Field label="Valor (R$)"><TextInput type="number" step="0.01" value={form.valor} onChange={(e) => setForm({ ...form, valor: e.target.value })} /></Field>
@@ -2309,6 +2382,7 @@ function Financeiro({ db, update, filialId }) {
 /* ---------------- Contabilidade: DRE + Balanço ---------------- */
 
 function Contabilidade({ db, filialId }) {
+  const isMobile = useIsMobile();
   const vendas = db.vendas.filter((v) => v.filialId === filialId);
   const compras = db.compras.filter((c) => c.filialId === filialId);
   const fretes = db.fretes.filter((f) => f.filialId === filialId);
@@ -2360,7 +2434,7 @@ function Contabilidade({ db, filialId }) {
       <div style={{ background: "#FBF3DC", border: `1px solid ${GOLD_LIGHT}`, borderRadius: 10, padding: "10px 14px", fontSize: 12.5, color: "#6B5410" }}>
         Demonstrações calculadas automaticamente a partir dos lançamentos de Vendas, Compras, Logística e Contas Avulsas desta filial — regime de caixa simplificado, para fins gerenciais. Não substitui a escrituração contábil oficial.
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+      <div style={{ display: "grid", gridTemplateColumns: gridCols(isMobile, "1fr 1fr"), gap: 16 }}>
         <Card title="DRE — Demonstrativo de Resultado">
           {linha("Receita bruta de vendas", receitaBruta)}
           {linha("(+) Receitas avulsas", receitasAvulsas, false, true)}
@@ -2406,6 +2480,7 @@ function Contabilidade({ db, filialId }) {
 
 /* Cadastro de motoristas com foto e upload da CNH (imagem ou PDF). */
 function CadastroMotoristas({ items, onChange, filialId }) {
+  const isMobile = useIsMobile();
   const blank = { id: null, nomeCompleto: "", apelido: "", telefone: "", cnh: "", foto: null, anexos: [] };
   const [draft, setDraft] = useState(blank);
   const editing = !!draft.id;
@@ -2437,7 +2512,7 @@ function CadastroMotoristas({ items, onChange, filialId }) {
   return (
     <Card title="Motoristas" subtitle="Cadastro completo, com foto e a CNH digitalizada.">
       <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-        <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr", gap: 10 }}>
+        <div style={{ display: "grid", gridTemplateColumns: gridCols(isMobile, "2fr 1fr 1fr 1fr"), gap: 10 }}>
           <Field label="Nome completo"><TextInput value={draft.nomeCompleto} onChange={(e) => setDraft({ ...draft, nomeCompleto: e.target.value })} /></Field>
           <Field label="Apelido"><TextInput value={draft.apelido} onChange={(e) => setDraft({ ...draft, apelido: e.target.value })} /></Field>
           <Field label="Telefone"><TextInput value={draft.telefone} onChange={(e) => setDraft({ ...draft, telefone: e.target.value })} /></Field>
@@ -2499,6 +2574,7 @@ function FinalizarViagemBtn({ viagem, onFinalizar }) {
 }
 
 function ViagensEntrega({ db, update, filialId }) {
+  const isMobile = useIsMobile();
   const motoristas = db.motoristas.filter((m) => m.filialId === filialId);
   const veiculos = db.veiculos.filter((v) => v.filialId === filialId);
   const fretes = db.fretes.filter((f) => f.filialId === filialId);
@@ -2535,7 +2611,7 @@ function ViagensEntrega({ db, update, filialId }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <Card title="Controle de frota — iniciar viagem de entrega" subtitle="Registre a saída do veículo próprio: motorista, km inicial, combustível, fotos do carro e rota.">
-        <form onSubmit={iniciarViagem} style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, alignItems: "end" }}>
+        <form onSubmit={iniciarViagem} style={{ display: "grid", gridTemplateColumns: gridCols(isMobile, "repeat(3, 1fr)"), gap: 10, alignItems: "end" }}>
           <Field label="Data da saída"><TextInput type="date" value={form.data} onChange={(e) => setForm({ ...form, data: e.target.value })} /></Field>
           <Field label="Motorista"><Select options={motoristas.map((m) => ({ value: m.id, label: m.apelido || m.nomeCompleto }))} value={form.motoristaId} onChange={(e) => setForm({ ...form, motoristaId: e.target.value })} /></Field>
           <Field label="Veículo"><Select options={veiculos.map((v) => ({ value: v.id, label: v.placa }))} value={form.veiculoId} onChange={(e) => setForm({ ...form, veiculoId: e.target.value })} /></Field>
@@ -2584,6 +2660,7 @@ function ViagensEntrega({ db, update, filialId }) {
 }
 
 function Logistica({ db, update, filialId }) {
+  const isMobile = useIsMobile();
   const motoristas = db.motoristas.filter((m) => m.filialId === filialId);
   const veiculos = db.veiculos.filter((v) => v.filialId === filialId);
   const fretes = db.fretes.filter((f) => f.filialId === filialId);
@@ -2604,13 +2681,13 @@ function Logistica({ db, update, filialId }) {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+      <div style={{ display: "grid", gridTemplateColumns: gridCols(isMobile, "1fr 1fr"), gap: 16 }}>
         <CadastroMotoristas items={motoristas} filialId={filialId} onChange={(items) => update((prev) => ({ ...prev, motoristas: mergeByFilial(prev.motoristas, items, filialId) }))} />
         <CrudBlock title="Veículos" filialId={filialId} items={veiculos} onChange={(items) => update((prev) => ({ ...prev, veiculos: mergeByFilial(prev.veiculos, items, filialId) }))}
           fields={[{ key: "placa", label: "Placa", required: true }, { key: "modelo", label: "Modelo" }]} />
       </div>
       <Card title="Lançar frete" subtitle="Gera uma conta a pagar e entra como despesa de logística na DRE.">
-        <form onSubmit={lancar} style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr 1fr", gap: 10, alignItems: "end" }}>
+        <form onSubmit={lancar} style={{ display: "grid", gridTemplateColumns: gridCols(isMobile, "1fr 1fr 1fr 1fr 1fr"), gap: 10, alignItems: "end" }}>
           <Field label="Data"><TextInput type="date" value={form.data} onChange={(e) => setForm({ ...form, data: e.target.value })} /></Field>
           <Field label="Motorista"><Select options={motoristas.map((m) => ({ value: m.id, label: m.apelido || m.nomeCompleto }))} value={form.motoristaId} onChange={(e) => setForm({ ...form, motoristaId: e.target.value })} /></Field>
           <Field label="Veículo"><Select options={veiculos.map((v) => ({ value: v.id, label: v.placa }))} value={form.veiculoId} onChange={(e) => setForm({ ...form, veiculoId: e.target.value })} /></Field>
@@ -2767,6 +2844,7 @@ const ehSim = (v) => v === true || v === "true";
 /* Cadastro completo de funcionário — dados pessoais, contratação, saúde e segurança.
    Contém dados sensíveis (LGPD): restrinja o acesso a este módulo via Usuários & Permissões. */
 function CadastroFuncionario({ items, onChange, filialId }) {
+  const isMobile = useIsMobile();
   const blank = {
     id: null, nome: "", cargo: "", salarioBruto: "", encargosPercentual: "", beneficios: "", ativo: "true",
     foto: null, tipoDocumento: "RG", numeroDocumento: "", anexos: [],
@@ -2809,12 +2887,12 @@ function CadastroFuncionario({ items, onChange, filialId }) {
     <Card title={editing ? "Editar funcionário" : "Novo funcionário"} subtitle="Dados de saúde, antecedentes e deficiência são sensíveis pela LGPD — restrinja o acesso a este módulo via Usuários & Permissões.">
       <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         {secao("Dados pessoais")}
-        <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: 10 }}>
+        <div style={{ display: "grid", gridTemplateColumns: gridCols(isMobile, "2fr 1fr 1fr"), gap: 10 }}>
           <Field label="Nome completo"><TextInput value={draft.nome} onChange={(e) => setDraft({ ...draft, nome: e.target.value })} /></Field>
           <Field label="Cargo"><TextInput value={draft.cargo} onChange={(e) => setDraft({ ...draft, cargo: e.target.value })} /></Field>
           <Field label="Situação"><Select options={[{ value: "true", label: "Ativo" }, { value: "false", label: "Inativo" }]} value={draft.ativo} onChange={(e) => setDraft({ ...draft, ativo: e.target.value })} /></Field>
         </div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
+        <div style={{ display: "grid", gridTemplateColumns: gridCols(isMobile, "1fr 1fr 1fr"), gap: 10 }}>
           <Field label="Tipo de documento"><Select options={[{ value: "RG", label: "RG" }, { value: "CNH", label: "CNH" }]} value={draft.tipoDocumento} onChange={(e) => setDraft({ ...draft, tipoDocumento: e.target.value })} /></Field>
           <Field label="Número do documento"><TextInput value={draft.numeroDocumento} onChange={(e) => setDraft({ ...draft, numeroDocumento: e.target.value })} /></Field>
           <Field label="Tipo sanguíneo">
@@ -2844,43 +2922,43 @@ function CadastroFuncionario({ items, onChange, filialId }) {
         </div>
 
         {secao("Contratação")}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 10 }}>
+        <div style={{ display: "grid", gridTemplateColumns: gridCols(isMobile, "1fr 1fr 1fr 1fr"), gap: 10 }}>
           <Field label="Data de contratação"><TextInput type="date" value={draft.dataContratacao} onChange={(e) => setDraft({ ...draft, dataContratacao: e.target.value })} /></Field>
           <Field label="Tempo de empresa"><TextInput value={tempoDeEmpresa(draft.dataContratacao)} disabled style={{ background: BG, color: MUTED }} /></Field>
           <Field label="Quem entrevistou"><TextInput value={draft.entrevistadoPor} onChange={(e) => setDraft({ ...draft, entrevistadoPor: e.target.value })} /></Field>
           <Field label="Último emprego"><TextInput value={draft.ultimoEmprego} onChange={(e) => setDraft({ ...draft, ultimoEmprego: e.target.value })} /></Field>
         </div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        <div style={{ display: "grid", gridTemplateColumns: gridCols(isMobile, "1fr 1fr"), gap: 10 }}>
           <Field label="Cargo de confiança?"><Select options={SIM_NAO} value={draft.cargoConfianca} onChange={(e) => setDraft({ ...draft, cargoConfianca: e.target.value })} /></Field>
           <Field label="Emite holerite?"><Select options={SIM_NAO} value={draft.emiteHolerite} onChange={(e) => setDraft({ ...draft, emiteHolerite: e.target.value })} /></Field>
         </div>
 
         {secao("Financeiro / Folha")}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
+        <div style={{ display: "grid", gridTemplateColumns: gridCols(isMobile, "1fr 1fr 1fr"), gap: 10 }}>
           <Field label="Salário bruto (R$)"><TextInput type="number" value={draft.salarioBruto} onChange={(e) => setDraft({ ...draft, salarioBruto: e.target.value })} /></Field>
           <Field label="Encargos (%)"><TextInput type="number" value={draft.encargosPercentual} onChange={(e) => setDraft({ ...draft, encargosPercentual: e.target.value })} /></Field>
           <Field label="Benefícios (R$)"><TextInput type="number" value={draft.beneficios} onChange={(e) => setDraft({ ...draft, beneficios: e.target.value })} /></Field>
         </div>
 
         {secao("Saúde")}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 10 }}>
+        <div style={{ display: "grid", gridTemplateColumns: gridCols(isMobile, "1fr 2fr"), gap: 10 }}>
           <Field label="Possui deficiência (PCD)?"><Select options={SIM_NAO} value={draft.deficiente} onChange={(e) => setDraft({ ...draft, deficiente: e.target.value })} /></Field>
           {ehSim(draft.deficiente) && <Field label="Qual deficiência"><TextInput value={draft.qualDeficiencia} onChange={(e) => setDraft({ ...draft, qualDeficiencia: e.target.value })} /></Field>}
         </div>
         <Field label="Alergias"><TextInput value={draft.alergias} onChange={(e) => setDraft({ ...draft, alergias: e.target.value })} /></Field>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 10 }}>
+        <div style={{ display: "grid", gridTemplateColumns: gridCols(isMobile, "1fr 2fr"), gap: 10 }}>
           <Field label="Toma remédio controlado?"><Select options={SIM_NAO} value={draft.tomaRemedioControlado} onChange={(e) => setDraft({ ...draft, tomaRemedioControlado: e.target.value })} /></Field>
           {ehSim(draft.tomaRemedioControlado) && <Field label="Qual remédio"><TextInput value={draft.qualRemedio} onChange={(e) => setDraft({ ...draft, qualRemedio: e.target.value })} /></Field>}
         </div>
 
         {secao("Segurança")}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        <div style={{ display: "grid", gridTemplateColumns: gridCols(isMobile, "1fr 1fr"), gap: 10 }}>
           <Field label="Antecedentes criminais?"><Select options={SIM_NAO} value={draft.antecedentesCriminais} onChange={(e) => setDraft({ ...draft, antecedentesCriminais: e.target.value })} /></Field>
           <Field label="Tem passagem pela polícia?"><Select options={SIM_NAO} value={draft.passagemPolicia} onChange={(e) => setDraft({ ...draft, passagemPolicia: e.target.value })} /></Field>
         </div>
 
         {secao("Contato de emergência (família)")}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        <div style={{ display: "grid", gridTemplateColumns: gridCols(isMobile, "1fr 1fr"), gap: 10 }}>
           <Field label="Nome"><TextInput value={draft.contatoFamiliaNome} onChange={(e) => setDraft({ ...draft, contatoFamiliaNome: e.target.value })} /></Field>
           <Field label="Telefone"><TextInput value={draft.contatoFamiliaTelefone} onChange={(e) => setDraft({ ...draft, contatoFamiliaTelefone: e.target.value })} /></Field>
         </div>
