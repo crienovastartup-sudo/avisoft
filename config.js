@@ -17,6 +17,6 @@
  * esta chave na hora, e você atualiza o valor aqui embaixo também.
  */
 window.AVISOFT_CONFIG = {
-  apiUrl: "https://script.google.com/macros/s/AKfycbyjbABvnHyrxIo8gaobiU0XnxgnULHjt6tK1OwVj6ZyB_UyLO8exklQZNUenTYbSqX1/exec",
+  apiUrl: "https://script.google.com/macros/s/AKfycbw-PSAgyiIUlL-ng2Gn5v-6eEnwKp1mT7Qi7AaAlL4ujM6dw_HxpRrM9uq-iTnxoh6b/exec",
   apiKey: "bb7b1681-ab69-4803-bc1c-58c739e87ce9",
 };
