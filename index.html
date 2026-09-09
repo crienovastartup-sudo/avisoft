@@ -8,6 +8,8 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.24.7/babel.min.js"></script>
+<!-- URL e chave de conexão com a planilha ficam em arquivo separado — veja config.js -->
+<script src="config.js"></script>
 <style>
   html, body, #root { height: 100%; margin: 0; }
   body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; }
@@ -54,6 +56,25 @@
     },
   };
 })();
+</script>
+
+<!--
+  Bloqueia botão direito e os atalhos mais comuns de abrir o inspetor
+  (F12, Ctrl+Shift+I/J/C, Ctrl+U). Isto é apenas um desestímulo visual
+  para o usuário casual — NÃO impede alguém com conhecimento técnico:
+  o inspetor pode ser aberto pelo menu do navegador, por outros atalhos
+  que não dá pra bloquear, ou simplesmente abrindo a página em outro
+  navegador. Não trate isto como proteção de segurança de verdade.
+-->
+<script>
+document.addEventListener("contextmenu", (e) => e.preventDefault());
+document.addEventListener("keydown", (e) => {
+  const bloquear =
+    e.key === "F12" ||
+    (e.ctrlKey && e.shiftKey && ["I", "J", "C"].includes(e.key.toUpperCase())) ||
+    (e.ctrlKey && e.key.toUpperCase() === "U");
+  if (bloquear) e.preventDefault();
+});
 </script>
 
 <script type="text/babel" data-presets="react" data-type="module">
@@ -347,6 +368,11 @@ function hasStorage() {
 const CONN_KEY = "avisoft-conn-v1";
 
 async function loadConnection() {
+  // Se um config.js foi carregado antes deste script, com URL e chave pré-definidas,
+  // usa direto — ninguém precisa passar pela tela de conexão manualmente.
+  if (typeof window !== "undefined" && window.AVISOFT_CONFIG && window.AVISOFT_CONFIG.apiUrl && window.AVISOFT_CONFIG.apiKey) {
+    return { apiUrl: window.AVISOFT_CONFIG.apiUrl, apiKey: window.AVISOFT_CONFIG.apiKey };
+  }
   if (!hasStorage()) return null;
   try {
     const res = await window.storage.get(CONN_KEY, false);
