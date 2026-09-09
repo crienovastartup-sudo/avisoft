@@ -2201,6 +2201,28 @@ function Vendas({ db, update, filialId }) {
 
 /* ---------------- Estoque ---------------- */
 
+/* Quanto já foi vendido de um lote específico — soma os itens de venda que
+   referenciam esse loteId (orçamentos não contam, só vendas de verdade). */
+function vendidoDoLote(db, loteId) {
+  return db.vendas.reduce((s, v) => s + (v.itens || []).filter((it) => it.loteId === loteId).reduce((s2, it) => s2 + Number(it.qtd || 0), 0), 0);
+}
+function saldoLote(db, lote) {
+  return Math.max(0, Number(lote.quantidade || 0) - vendidoDoLote(db, lote.id));
+}
+/* Lotes de um produto com saldo disponível, ordenados por FEFO
+   (o que vence primeiro aparece primeiro — sem data de validade vai por último). */
+function lotesFEFO(db, filialId, produtoId) {
+  return db.lotesProduto
+    .filter((l) => l.filialId === filialId && l.produtoId === produtoId)
+    .map((l) => ({ ...l, saldo: saldoLote(db, l) }))
+    .filter((l) => l.saldo > 0)
+    .sort((a, b) => {
+      if (!a.dataValidade) return 1;
+      if (!b.dataValidade) return -1;
+      return a.dataValidade < b.dataValidade ? -1 : 1;
+    });
+}
+
 /* Cadastro de lotes de produção — cada lote é um registro separado, com sua
    própria validade, permitindo vários lotes em aberto para um mesmo produto. */
 function LotesProduto({ db, update, filialId }) {
@@ -2220,7 +2242,7 @@ function LotesProduto({ db, update, filialId }) {
   return (
     <CrudBlock
       title="Lotes de Produção (com validade)"
-      subtitle="Cada lote é um cadastro separado do produto — um mesmo produto pode ter vários lotes com validades diferentes ao mesmo tempo."
+      subtitle="Cada lote é um cadastro separado do produto — um mesmo produto pode ter vários lotes com validades diferentes ao mesmo tempo. O saldo já desconta o que foi vendido (rastreabilidade venda ↔ lote)."
       filialId={filialId}
       items={lotes}
       onChange={(items) => update((prev) => ({ ...prev, lotesProduto: mergeByFilial(prev.lotesProduto, items, filialId) }))}
@@ -2234,7 +2256,8 @@ function LotesProduto({ db, update, filialId }) {
       columns={[
         { key: "produtoId", label: "Produto", render: (r) => produtos.find((p) => p.id === r.produtoId)?.nome || "—" },
         { key: "codigo", label: "Lote" },
-        { key: "quantidade", label: "Qtd.", render: (r) => Number(r.quantidade || 0).toLocaleString("pt-BR") },
+        { key: "quantidade", label: "Produzido", render: (r) => Number(r.quantidade || 0).toLocaleString("pt-BR") },
+        { key: "saldo", label: "Saldo disponível", render: (r) => saldoLote(db, r).toLocaleString("pt-BR") },
         {
           key: "dataValidade", label: "Validade", render: (r) => {
             if (!r.dataValidade) return "—";
@@ -3359,12 +3382,25 @@ function RelatorioGerencial({ db, update, filialId }) {
   const funcionarios = db.funcionarios.filter((f) => f.filialId === filialId && f.ativo !== false && f.ativo !== "false");
   const vendedores = db.vendedores.filter((v) => v.filialId === filialId);
 
-  const configSalva = db.configsGerenciais.find((c) => c.filialId === filialId) || { investimentoTotal: 0, aliquotaImposto: 34 };
-  const [config, setConfig] = useState({ investimentoTotal: configSalva.investimentoTotal || "", aliquotaImposto: configSalva.aliquotaImposto ?? 34 });
+  const configSalva = db.configsGerenciais.find((c) => c.filialId === filialId) || { investimentoTotal: 0, aliquotaImposto: 34, descontoValidadeAtivo: false, descontoValidadeDias: 7, descontoValidadePercentual: 10 };
+  const [config, setConfig] = useState({
+    investimentoTotal: configSalva.investimentoTotal || "", aliquotaImposto: configSalva.aliquotaImposto ?? 34,
+    descontoValidadeAtivo: configSalva.descontoValidadeAtivo ? "true" : "false",
+    descontoValidadeDias: configSalva.descontoValidadeDias ?? 7,
+    descontoValidadePercentual: configSalva.descontoValidadePercentual ?? 10,
+  });
   const [periodo, setPeriodo] = useState({ de: primeiroDiaDoMes(), ate: todayISO() });
 
   function salvarConfig() {
-    update((prev) => ({ ...prev, configsGerenciais: [...prev.configsGerenciais.filter((c) => c.filialId !== filialId), { filialId, investimentoTotal: Number(config.investimentoTotal) || 0, aliquotaImposto: Number(config.aliquotaImposto) || 0 }] }));
+    update((prev) => ({
+      ...prev,
+      configsGerenciais: [...prev.configsGerenciais.filter((c) => c.filialId !== filialId), {
+        filialId, investimentoTotal: Number(config.investimentoTotal) || 0, aliquotaImposto: Number(config.aliquotaImposto) || 0,
+        descontoValidadeAtivo: config.descontoValidadeAtivo === "true" || config.descontoValidadeAtivo === true,
+        descontoValidadeDias: Number(config.descontoValidadeDias) || 0,
+        descontoValidadePercentual: Number(config.descontoValidadePercentual) || 0,
+      }],
+    }));
   }
 
   const dentroPeriodo = (dataISO) => !!dataISO && dataISO >= periodo.de && dataISO <= periodo.ate;
@@ -3450,6 +3486,17 @@ function RelatorioGerencial({ db, update, filialId }) {
         <div style={{ display: "flex", gap: 12, alignItems: "end", flexWrap: "wrap" }}>
           <Field label="Investimento total (R$)"><TextInput type="number" step="0.01" value={config.investimentoTotal} onChange={(e) => setConfig({ ...config, investimentoTotal: e.target.value })} /></Field>
           <Field label="Alíquota de imposto sobre o lucro (%)"><TextInput type="number" step="0.1" value={config.aliquotaImposto} onChange={(e) => setConfig({ ...config, aliquotaImposto: e.target.value })} /></Field>
+          <Button onClick={salvarConfig}>Salvar parâmetros</Button>
+        </div>
+      </Card>
+
+      <Card title="Desconto automático por validade (Força de Vendas)" subtitle="Opcional — quando ligado, o lote sugerido perto do vencimento já entra com desconto aplicado. A decisão de ligar ou não continua sendo sua.">
+        <div style={{ display: "flex", gap: 12, alignItems: "end", flexWrap: "wrap" }}>
+          <Field label="Aplicar desconto automático?">
+            <Select options={[{ value: "false", label: "Não" }, { value: "true", label: "Sim" }]} value={config.descontoValidadeAtivo} onChange={(e) => setConfig({ ...config, descontoValidadeAtivo: e.target.value })} />
+          </Field>
+          <Field label="Nos últimos quantos dias antes de vencer"><TextInput type="number" value={config.descontoValidadeDias} onChange={(e) => setConfig({ ...config, descontoValidadeDias: e.target.value })} /></Field>
+          <Field label="Percentual de desconto (%)"><TextInput type="number" step="0.1" value={config.descontoValidadePercentual} onChange={(e) => setConfig({ ...config, descontoValidadePercentual: e.target.value })} /></Field>
           <Button onClick={salvarConfig}>Salvar parâmetros</Button>
         </div>
       </Card>
@@ -3912,7 +3959,7 @@ function OrcamentosLista({ db, update, filialId }) {
     const itensComCfop = orc.itens.map((it) => {
       const prod = produtos.find((p) => p.id === it.produtoId);
       const cfop = determinarCFOP(empresa?.tipoEmpresa, filial?.uf, cliente?.uf, ehSim(prod?.residuo));
-      return { produtoId: it.produtoId, qtd: it.qtd, precoUnit: it.precoUnit, cfop };
+      return { produtoId: it.produtoId, qtd: it.qtd, precoUnit: it.precoUnit, cfop, loteId: it.loteId || "" };
     });
     const venda = {
       id: uid(), filialId, data: todayISO(), clienteId: orc.clienteId, vendedorId: orc.vendedorId,
@@ -3994,12 +4041,30 @@ function ForcaDeVendas({ db, update, filialId }) {
   const clientesFiltrados = buscaCliente
     ? clientes.filter((c) => c.razaoSocial.toLowerCase().includes(buscaCliente.toLowerCase()))
     : clientes.slice(0, 8);
+  const configDesconto = db.configsGerenciais.find((c) => c.filialId === filialId);
+
+  /* Escolhe o lote FEFO (o que vence primeiro) com saldo disponível para o produto,
+     e aplica o desconto automático configurado se o lote estiver dentro do prazo. */
+  function itemComLoteEDesconto(produto, qtd) {
+    const disponiveis = lotesFEFO(db, filialId, produto.id);
+    const lote = disponiveis[0]; // undefined = produto sem lote cadastrado (ex.: vendendo produção futura)
+    let precoUnit = Number(produto.precoVenda) || 0;
+    let descontoAplicado = false;
+    if (lote && configDesconto?.descontoValidadeAtivo) {
+      const dias = lote.dataValidade ? Math.round((new Date(lote.dataValidade + "T00:00:00") - new Date(todayISO() + "T00:00:00")) / 86400000) : null;
+      if (dias !== null && dias <= Number(configDesconto.descontoValidadeDias || 0)) {
+        precoUnit = precoUnit * (1 - Number(configDesconto.descontoValidadePercentual || 0) / 100);
+        descontoAplicado = true;
+      }
+    }
+    return { produtoId: produto.id, qtd, precoUnit, precoOriginal: Number(produto.precoVenda) || 0, loteId: lote?.id || "", descontoAplicado };
+  }
 
   function addAoCarrinho(produto) {
     setCarrinho((c) => {
       const existente = c.find((it) => it.produtoId === produto.id);
       if (existente) return c.map((it) => (it.produtoId === produto.id ? { ...it, qtd: it.qtd + 1 } : it));
-      return [...c, { produtoId: produto.id, qtd: 1, precoUnit: Number(produto.precoVenda) || 0 }];
+      return [...c, itemComLoteEDesconto(produto, 1)];
     });
   }
   function alterarQtd(produtoId, delta) {
@@ -4008,6 +4073,22 @@ function ForcaDeVendas({ db, update, filialId }) {
   function definirQtd(produtoId, novaQtd) {
     const qtd = Math.max(0, Number(novaQtd) || 0);
     setCarrinho((c) => c.map((it) => (it.produtoId === produtoId ? { ...it, qtd } : it)).filter((it) => it.qtd > 0));
+  }
+  function trocarLote(produtoId, novoLoteId) {
+    setCarrinho((c) => c.map((it) => {
+      if (it.produtoId !== produtoId) return it;
+      const lote = db.lotesProduto.find((l) => l.id === novoLoteId);
+      let precoUnit = it.precoOriginal;
+      let descontoAplicado = false;
+      if (lote && configDesconto?.descontoValidadeAtivo && lote.dataValidade) {
+        const dias = Math.round((new Date(lote.dataValidade + "T00:00:00") - new Date(todayISO() + "T00:00:00")) / 86400000);
+        if (dias <= Number(configDesconto.descontoValidadeDias || 0)) {
+          precoUnit = precoUnit * (1 - Number(configDesconto.descontoValidadePercentual || 0) / 100);
+          descontoAplicado = true;
+        }
+      }
+      return { ...it, loteId: novoLoteId, precoUnit, descontoAplicado };
+    }));
   }
   const totalCarrinho = carrinho.reduce((s, it) => s + it.qtd * it.precoUnit, 0);
   const qtdItensCarrinho = carrinho.reduce((s, it) => s + it.qtd, 0);
@@ -4067,7 +4148,7 @@ function ForcaDeVendas({ db, update, filialId }) {
     const itensComCfop = carrinho.map((it) => {
       const prod = produtos.find((p) => p.id === it.produtoId);
       const cfop = determinarCFOP(empresa?.tipoEmpresa, filial?.uf, cliente?.uf, ehSim(prod?.residuo));
-      return { produtoId: it.produtoId, qtd: it.qtd, precoUnit: it.precoUnit, cfop };
+      return { produtoId: it.produtoId, qtd: it.qtd, precoUnit: it.precoUnit, cfop, loteId: it.loteId || "" };
     });
     const venda = {
       id: uid(), filialId, data: todayISO(), clienteId, vendedorId,
@@ -4169,7 +4250,17 @@ function ForcaDeVendas({ db, update, filialId }) {
                   </div>
                   <div style={{ padding: 9 }}>
                     <div style={{ fontSize: 12, fontWeight: 700, color: INK, minHeight: 30 }}>{p.nome}</div>
-                    <div style={{ fontSize: 13.5, fontWeight: 800, color: GREEN, marginTop: 2 }}>{brl(p.precoVenda)}</div>
+                    {noCarrinho?.descontoAplicado ? (
+                      <div style={{ marginTop: 2 }}>
+                        <span style={{ fontSize: 10.5, color: MUTED, textDecoration: "line-through" }}>{brl(noCarrinho.precoOriginal)}</span>
+                        <span style={{ fontSize: 13.5, fontWeight: 800, color: DANGER, marginLeft: 6 }}>{brl(noCarrinho.precoUnit)}</span>
+                      </div>
+                    ) : (
+                      <div style={{ fontSize: 13.5, fontWeight: 800, color: GREEN, marginTop: 2 }}>{brl(p.precoVenda)}</div>
+                    )}
+                    {noCarrinho?.loteId && (
+                      <div style={{ fontSize: 9.5, color: MUTED, marginTop: 1 }}>Lote {db.lotesProduto.find((l) => l.id === noCarrinho.loteId)?.codigo || "—"} (FEFO)</div>
+                    )}
                     {noCarrinho ? (
                       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 8, gap: 4 }}>
                         <button onClick={() => alterarQtd(p.id, -1)} style={{ width: 26, height: 26, borderRadius: 6, border: `1px solid ${BORDER}`, background: BG, cursor: "pointer", fontWeight: 800, flexShrink: 0 }}>−</button>
@@ -4203,24 +4294,43 @@ function ForcaDeVendas({ db, update, filialId }) {
       {/* ---- Etapa: finalizar ---- */}
       {etapa === "finalizar" && (
         <>
-          <Card title="Resumo do pedido" subtitle="A quantidade pode ser ajustada aqui, sem precisar voltar para os produtos.">
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <Card title="Resumo do pedido" subtitle="Lote sugerido automaticamente pelo mais próximo do vencimento (FEFO) — pode trocar se precisar. A quantidade também pode ser ajustada aqui.">
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
               {carrinho.map((it) => {
                 const p = produtos.find((x) => x.id === it.produtoId);
+                const opcoesLote = lotesFEFO(db, filialId, it.produtoId);
+                const loteAtual = db.lotesProduto.find((l) => l.id === it.loteId);
                 return (
-                  <div key={it.produtoId} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13, gap: 8 }}>
-                    <span style={{ flex: 1 }}>{p?.nome}</span>
-                    <input
-                      type="number" value={it.qtd} onFocus={(e) => e.target.select()}
-                      onChange={(e) => definirQtd(it.produtoId, e.target.value)}
-                      style={{ width: 50, textAlign: "center", fontWeight: 800, fontSize: 13, border: `1px solid ${BORDER}`, borderRadius: 6, padding: "3px 2px" }}
-                    />
-                    <span style={{ fontWeight: 700, minWidth: 70, textAlign: "right" }}>{brl(it.qtd * it.precoUnit)}</span>
+                  <div key={it.produtoId} style={{ borderBottom: `1px solid ${BORDER}`, paddingBottom: 8 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13, gap: 8 }}>
+                      <span style={{ flex: 1, fontWeight: 700 }}>{p?.nome}</span>
+                      <input
+                        type="number" value={it.qtd} onFocus={(e) => e.target.select()}
+                        onChange={(e) => definirQtd(it.produtoId, e.target.value)}
+                        style={{ width: 50, textAlign: "center", fontWeight: 800, fontSize: 13, border: `1px solid ${BORDER}`, borderRadius: 6, padding: "3px 2px" }}
+                      />
+                      <span style={{ fontWeight: 700, minWidth: 70, textAlign: "right" }}>{brl(it.qtd * it.precoUnit)}</span>
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 4 }}>
+                      {opcoesLote.length ? (
+                        <select value={it.loteId} onChange={(e) => trocarLote(it.produtoId, e.target.value)} style={{ fontSize: 11, border: `1px solid ${BORDER}`, borderRadius: 6, padding: "2px 4px", flex: 1 }}>
+                          {opcoesLote.map((l) => (
+                            <option key={l.id} value={l.id}>Lote {l.codigo} — vence {l.dataValidade ? l.dataValidade.split("-").reverse().join("/") : "s/ validade"} (saldo {l.saldo})</option>
+                          ))}
+                        </select>
+                      ) : (
+                        <span style={{ fontSize: 11, color: MUTED, fontStyle: "italic" }}>Sem lote cadastrado — vendendo produção ainda não lançada</span>
+                      )}
+                      {it.descontoAplicado && (
+                        <span style={{ fontSize: 10, fontWeight: 800, color: "#fff", background: DANGER, borderRadius: 999, padding: "2px 8px", whiteSpace: "nowrap" }}>
+                          desconto validade
+                        </span>
+                      )}
+                    </div>
                   </div>
                 );
               })}
-              <div style={{ height: 1, background: BORDER, margin: "6px 0" }} />
-              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 16, fontWeight: 800, color: GREEN }}>
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 16, fontWeight: 800, color: GREEN, marginTop: 4 }}>
                 <span>Total</span><span>{brl(totalCarrinho)}</span>
               </div>
             </div>
