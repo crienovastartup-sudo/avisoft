@@ -331,33 +331,37 @@ function GlobalAnimationStyles() {
   return (
     <style>{`
       @keyframes avisoftBicada {
-        0%   { transform: translateY(0) rotate(0deg); }
-        35%  { transform: translateY(-5px) rotate(-4deg); }
-        50%  { transform: translateY(7px) rotate(9deg); }
-        65%  { transform: translateY(-2px) rotate(-2deg); }
-        80%  { transform: translateY(0) rotate(0deg); }
-        100% { transform: translateY(0) rotate(0deg); }
+        0%, 100% { transform: scale(1) rotate(0deg); }
+        30% { transform: scale(1.08) rotate(-5deg); }
+        50% { transform: scale(0.95) rotate(8deg); }
+        70% { transform: scale(1.05) rotate(-3deg); }
+      }
+      @keyframes avisoftGiro {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
       }
       @keyframes avisoftPontinhos {
-        0%, 100% { opacity: 0.25; }
+        0%, 100% { opacity: 0.4; }
         50% { opacity: 1; }
       }
     `}</style>
   );
 }
 
-/* Galinha "bicando a tela" — usada nas telas de carregamento. */
+/* Galinha "bicando a tela" — usada nas telas de carregamento, com anel girando ao redor. */
 function GalinhaCarregando({ mensagem }) {
   return (
-    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 14 }}>
-      <img
-        src={GALINHA_ICON_DATA_URL}
-        alt="Carregando"
-        style={{ width: 64, height: 64, transformOrigin: "70% 30%", animation: "avisoftBicada 1.1s ease-in-out infinite" }}
-      />
-      <div style={{ fontSize: 13, color: MUTED, fontWeight: 600 }}>
-        {mensagem || "Carregando"}
-        <span style={{ display: "inline-block", animation: "avisoftPontinhos 1.4s ease-in-out infinite" }}>…</span>
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 18 }}>
+      <div style={{ position: "relative", width: 90, height: 90, display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <div style={{ position: "absolute", width: 90, height: 90, border: "3px solid transparent", borderTopColor: GREEN, borderRadius: "50%", animation: "avisoftGiro 1.2s linear infinite" }} />
+        <img
+          src={GALINHA_ICON_DATA_URL}
+          alt="Carregando"
+          style={{ width: 56, height: 56, animation: "avisoftBicada 1.5s ease-in-out infinite" }}
+        />
+      </div>
+      <div style={{ fontSize: 13, color: GREEN, fontWeight: 700, letterSpacing: 0.5, animation: "avisoftPontinhos 1.5s ease-in-out infinite" }}>
+        {(mensagem || "Carregando") + "..."}
       </div>
     </div>
   );
@@ -1184,13 +1188,10 @@ function Onboarding({ onCreate }) {
   return (
     <div style={{ ...shell(), justifyContent: "center", alignItems: "center" }}>
       <form onSubmit={submit} style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 14, padding: 32, width: 520, maxWidth: "92vw", display: "flex", flexDirection: "column", gap: 16 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-          <GalinhaLogo size={44} />
-          <div>
-            <div style={{ fontSize: 12, fontWeight: 800, color: GOLD, letterSpacing: 1 }}>BEM-VINDO AO</div>
-            <div style={{ fontSize: 26, fontWeight: 800, color: GREEN }}>AVISOFT</div>
-            <div style={{ fontSize: 12.5, color: MUTED, marginTop: 4 }}>Vamos cadastrar sua empresa e o primeiro usuário administrador.</div>
-          </div>
+        <div>
+          <div style={{ fontSize: 12, fontWeight: 800, color: GOLD, letterSpacing: 1 }}>BEM-VINDO AO</div>
+          <div style={{ fontSize: 26, fontWeight: 800, color: GREEN }}>AVISOFT</div>
+          <div style={{ fontSize: 12.5, color: MUTED, marginTop: 4 }}>Vamos cadastrar sua empresa e o primeiro usuário administrador.</div>
         </div>
         <div style={{ display: "grid", gridTemplateColumns: gridCols(isMobile, "1fr 1fr"), gap: 12 }}>
           <Field label="Nome da empresa"><TextInput value={form.nome} onChange={(e) => setForm({ ...form, nome: e.target.value })} /></Field>
