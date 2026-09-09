@@ -104,6 +104,10 @@ const emptyDB = () => ({
   registrosPostura: [],
   registrosMortalidade: [],
   registrosEsterco: [],
+  equipeManejo: [],
+  notificacoesLidas: [],
+  viagensEntrega: [],
+  registrosDescarte: [],
 });
 
 const MODULES = [
@@ -803,6 +807,53 @@ export default function AvisoftRoot() {
   );
 }
 
+/* Popup global — avisa sobre lotes com troca de fase agendada em 30, 14 ou 2 dias.
+   Reaparece quando o prazo entra numa faixa mais urgente, mesmo que a faixa
+   anterior já tenha sido confirmada como lida. */
+function AlertaFasesLote({ db, update, filialId }) {
+  const [aberto, setAberto] = useState(true);
+  const hoje = todayISO();
+  const lotes = db.lotesAves.filter((l) => l.filialId === filialId && l.dataProximaFase);
+  const lidas = db.notificacoesLidas.filter((n) => n.filialId === filialId);
+
+  const faixa = (dias) => (dias <= 2 ? 2 : dias <= 14 ? 14 : 30);
+  const chaveLida = (loteId, dias) => `${loteId}::${faixa(dias)}`;
+  const jaLida = (loteId, dias) => lidas.some((l) => l.chave === chaveLida(loteId, dias));
+
+  const alertas = lotes
+    .map((l) => ({ ...l, diasRestantes: Math.round((new Date(l.dataProximaFase + "T00:00:00") - new Date(hoje + "T00:00:00")) / 86400000) }))
+    .filter((l) => l.diasRestantes <= 30 && !jaLida(l.id, l.diasRestantes))
+    .sort((a, b) => a.diasRestantes - b.diasRestantes);
+
+  function marcarLida(alerta) {
+    update((prev) => ({ ...prev, notificacoesLidas: [...prev.notificacoesLidas, { id: uid(), filialId, chave: chaveLida(alerta.id, alerta.diasRestantes), data: hoje }] }));
+  }
+
+  if (!alertas.length || !aberto) return null;
+
+  return (
+    <Modal title="Alerta — troca de fase de lote de aves" onClose={() => setAberto(false)}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        {alertas.map((a) => {
+          const urgente = a.diasRestantes <= 2;
+          return (
+            <div key={a.id} style={{ background: urgente ? "#FBEAE4" : "#FBF3DC", border: `1px solid ${urgente ? DANGER : GOLD}55`, borderRadius: 10, padding: 12 }}>
+              <div style={{ fontWeight: 800, color: urgente ? DANGER : "#6B5410" }}>
+                Lote {a.codigo} — {a.diasRestantes < 0 ? `${Math.abs(a.diasRestantes)} dia(s) em atraso` : a.diasRestantes === 0 ? "é hoje" : `${a.diasRestantes} dia(s) restante(s)`}
+              </div>
+              <div style={{ fontSize: 12.5, color: INK, marginTop: 4 }}>
+                Fase atual: <b>{a.fase || "—"}</b> → próxima fase: <b>{a.proximaFase || "—"}</b>, prevista para {a.dataProximaFase.split("-").reverse().join("/")}
+              </div>
+              <Button variant="ghost" style={{ marginTop: 8 }} onClick={() => marcarLida(a)}>Marcar como lido</Button>
+            </div>
+          );
+        })}
+      </div>
+      <div style={{ fontSize: 11, color: MUTED, marginTop: 12 }}>A equipe de manejo cadastrada também recebe esses avisos por e-mail, mesmo que ninguém abra o sistema.</div>
+    </Modal>
+  );
+}
+
 function AvisoftApp() {
   const [conn, setConn] = useState(undefined); // undefined = ainda não verificou; null = não configurado
   const [db, setDb] = useState(null);
@@ -840,7 +891,7 @@ function AvisoftApp() {
   if (conn === undefined || (conn && loading)) {
     return (
       <div style={shell()}>
-        <div style={{ margin: "auto", color: MUTED, fontSize: 14 }}>Verificando conexão…</div>
+        <div style={{ margin: "auto", color: MUTED, fontSize: 14 }}>Conectando à planilha…</div>
       </div>
     );
   }
@@ -885,6 +936,7 @@ function AvisoftApp() {
 
   return (
     <div style={shell()}>
+      <AlertaFasesLote db={db} update={update} filialId={session.filialId} />
       {saveError && (
         <div style={{ position: "fixed", top: 10, right: 10, background: DANGER, color: "#fff", padding: "8px 14px", borderRadius: 8, fontSize: 12.5, zIndex: 50, maxWidth: 360 }}>
           Não foi possível salvar na planilha: {saveError}
@@ -1847,6 +1899,7 @@ function Estoque({ db, filialId }) {
 function FabricaRacao({ db, update, filialId }) {
   const formulacoes = db.formulacoes.filter((f) => f.filialId === filialId);
   const producoes = db.producoesRacao.filter((p) => p.filialId === filialId);
+  const galpoes = db.galpoes.filter((g) => g.filialId === filialId);
 
   const [ingredientes, setIngredientes] = useState([{ nome: "", percentual: "", custoKg: "" }]);
   const [nomeFormula, setNomeFormula] = useState("");
@@ -1863,14 +1916,17 @@ function FabricaRacao({ db, update, filialId }) {
 
   const custoKgFormula = (f) => f.ingredientes.reduce((s, i) => s + (Number(i.percentual || 0) / 100) * Number(i.custoKg || 0), 0);
 
-  const [prod, setProd] = useState({ data: todayISO(), formulacaoId: "", qtdKg: "", moega: "", pesoPorSaco: "40" });
+  const [prod, setProd] = useState({ data: todayISO(), formulacaoId: "", qtdKg: "", moega: "", pesoPorSaco: "40", galpaoDestinoId: "" });
+  const formulaSelecionada = formulacoes.find((f) => f.id === prod.formulacaoId);
+  const custoTotalPreview = formulaSelecionada ? custoKgFormula(formulaSelecionada) * Number(prod.qtdKg || 0) : 0;
+
   function lancarProducao(e) {
     e.preventDefault();
     const formula = formulacoes.find((f) => f.id === prod.formulacaoId);
     const custoTotal = formula ? custoKgFormula(formula) * Number(prod.qtdKg || 0) : 0;
     const sacos = Number(prod.pesoPorSaco || 0) > 0 ? Number(prod.qtdKg || 0) / Number(prod.pesoPorSaco) : 0;
-    update((prev) => ({ ...prev, producoesRacao: [...prev.producoesRacao, { id: uid(), filialId, data: prod.data, formulacaoId: prod.formulacaoId, moega: prod.moega, pesoPorSaco: Number(prod.pesoPorSaco || 0), qtdKg: Number(prod.qtdKg), sacos, custoTotal }] }));
-    setProd({ data: todayISO(), formulacaoId: "", qtdKg: "", moega: "", pesoPorSaco: "40" });
+    update((prev) => ({ ...prev, producoesRacao: [...prev.producoesRacao, { id: uid(), filialId, data: prod.data, formulacaoId: prod.formulacaoId, moega: prod.moega, pesoPorSaco: Number(prod.pesoPorSaco || 0), galpaoDestinoId: prod.galpaoDestinoId, qtdKg: Number(prod.qtdKg), sacos, custoTotal }] }));
+    setProd({ data: todayISO(), formulacaoId: "", qtdKg: "", moega: "", pesoPorSaco: "40", galpaoDestinoId: "" });
   }
 
   return (
@@ -1919,10 +1975,17 @@ function FabricaRacao({ db, update, filialId }) {
           <Field label="Moega / silo de origem"><TextInput value={prod.moega} onChange={(e) => setProd({ ...prod, moega: e.target.value })} /></Field>
           <Field label="Quantidade (kg)"><TextInput type="number" value={prod.qtdKg} onChange={(e) => setProd({ ...prod, qtdKg: e.target.value })} /></Field>
           <Field label="Peso por saco (kg)"><TextInput type="number" value={prod.pesoPorSaco} onChange={(e) => setProd({ ...prod, pesoPorSaco: e.target.value })} /></Field>
+          <Field label="Silo/Galpão de destino"><Select options={galpoes.map((g) => ({ value: g.id, label: g.nome }))} value={prod.galpaoDestinoId} onChange={(e) => setProd({ ...prod, galpaoDestinoId: e.target.value })} /></Field>
           <div style={{ fontSize: 12, color: MUTED, paddingBottom: 8 }}>
             {Number(prod.pesoPorSaco) > 0 && Number(prod.qtdKg) > 0 ? `≈ ${(Number(prod.qtdKg) / Number(prod.pesoPorSaco)).toFixed(1)} sacos` : "—"}
           </div>
-          <div style={{ gridColumn: "1 / -1" }}><Button type="submit">Registrar</Button></div>
+          <div style={{ gridColumn: "1 / -1" }}>
+            <div style={{ background: BG, border: `1px solid ${BORDER}`, borderRadius: 8, padding: "10px 14px", marginBottom: 12, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <span style={{ fontSize: 12.5, color: MUTED, fontWeight: 700 }}>Custo total gerado neste lote</span>
+              <span style={{ fontSize: 18, fontWeight: 800, color: GREEN }}>{brl(custoTotalPreview)}</span>
+            </div>
+            <Button type="submit">Registrar</Button>
+          </div>
         </form>
       </Card>
 
@@ -1932,6 +1995,7 @@ function FabricaRacao({ db, update, filialId }) {
             { key: "data", label: "Data" },
             { key: "formulacaoId", label: "Formulação", render: (r) => formulacoes.find((f) => f.id === r.formulacaoId)?.nome || "—" },
             { key: "moega", label: "Moega", render: (r) => r.moega || "—" },
+            { key: "galpaoDestinoId", label: "Destino", render: (r) => galpoes.find((g) => g.id === r.galpaoDestinoId)?.nome || "—" },
             { key: "qtdKg", label: "Kg produzidos", render: (r) => r.qtdKg.toLocaleString("pt-BR") },
             { key: "sacos", label: "Sacos", render: (r) => (r.sacos || 0).toFixed(1) },
             { key: "custoTotal", label: "Custo total", render: (r) => brl(r.custoTotal) },
@@ -2092,7 +2156,7 @@ function Compras({ db, update, filialId }) {
           <Field label="Data"><TextInput type="date" value={form.data} onChange={(e) => setForm({ ...form, data: e.target.value })} /></Field>
           <Field label="Fornecedor"><Select options={fornecedores.map((f) => ({ value: f.id, label: f.razaoSocial }))} value={form.fornecedorId} onChange={(e) => setForm({ ...form, fornecedorId: e.target.value })} /></Field>
           <Field label="Categoria">
-            <Select options={[{ value: "insumo", label: "Insumo / Ração" }, { value: "administrativo", label: "Administrativo" }, { value: "manutencao", label: "Manutenção" }, { value: "outro", label: "Outro" }]} value={form.categoria} onChange={(e) => setForm({ ...form, categoria: e.target.value })} />
+            <Select options={[{ value: "insumo", label: "Insumo / Ração" }, { value: "pintinhos", label: "Pintinhos de 1 dia" }, { value: "administrativo", label: "Administrativo" }, { value: "manutencao", label: "Manutenção" }, { value: "outro", label: "Outro" }]} value={form.categoria} onChange={(e) => setForm({ ...form, categoria: e.target.value })} />
           </Field>
           <Field label="Descrição"><TextInput value={form.descricao} onChange={(e) => setForm({ ...form, descricao: e.target.value })} /></Field>
           <Field label="Valor (R$)"><TextInput type="number" step="0.01" value={form.valor} onChange={(e) => setForm({ ...form, valor: e.target.value })} /></Field>
@@ -2256,9 +2320,10 @@ function Contabilidade({ db, filialId }) {
   const receitaBruta = vendas.reduce((s, v) => s + Number(v.total || 0), 0);
   const comissoes = vendas.reduce((s, v) => s + Number(v.comissaoValor || 0) + Number(v.comissaoGerenteValor || 0), 0);
   const custoInsumos = compras.filter((c) => c.categoria === "insumo").reduce((s, c) => s + Number(c.valor || 0), 0);
+  const custoPintinhos = compras.filter((c) => c.categoria === "pintinhos").reduce((s, c) => s + Number(c.valor || 0), 0);
   const despesasAdm = compras.filter((c) => c.categoria === "administrativo").reduce((s, c) => s + Number(c.valor || 0), 0);
   const manutencao = compras.filter((c) => c.categoria === "manutencao").reduce((s, c) => s + Number(c.valor || 0), 0);
-  const outrasCompras = compras.filter((c) => !["insumo", "administrativo", "manutencao"].includes(c.categoria)).reduce((s, c) => s + Number(c.valor || 0), 0);
+  const outrasCompras = compras.filter((c) => !["insumo", "administrativo", "manutencao", "pintinhos"].includes(c.categoria)).reduce((s, c) => s + Number(c.valor || 0), 0);
   const despesasFrete = fretes.reduce((s, f) => s + Number(f.valorFrete || 0), 0);
   const receitasAvulsas = avulsas.filter((a) => a.tipo === "receber").reduce((s, a) => s + Number(a.valor || 0), 0);
   const despesasAvulsas = avulsas.filter((a) => a.tipo === "pagar").reduce((s, a) => s + Number(a.valor || 0), 0);
@@ -2339,6 +2404,185 @@ function Contabilidade({ db, filialId }) {
 
 /* ---------------- Logística ---------------- */
 
+/* Cadastro de motoristas com foto e upload da CNH (imagem ou PDF). */
+function CadastroMotoristas({ items, onChange, filialId }) {
+  const blank = { id: null, nomeCompleto: "", apelido: "", telefone: "", cnh: "", foto: null, anexos: [] };
+  const [draft, setDraft] = useState(blank);
+  const editing = !!draft.id;
+
+  function submit(e) {
+    e.preventDefault();
+    if (!draft.nomeCompleto) return;
+    if (editing) onChange(items.map((it) => (it.id === draft.id ? draft : it)));
+    else onChange([...items, { ...draft, id: uid(), filialId }]);
+    setDraft(blank);
+  }
+  function edit(row) { setDraft({ ...blank, ...row }); }
+  function remove(row) { onChange(items.filter((it) => it.id !== row.id)); if (draft.id === row.id) setDraft(blank); }
+
+  function lerArquivo(e, campo, multiplo) {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (file.size > 1.5 * 1024 * 1024) { alert("Arquivo muito grande para este protótipo (limite 1,5 MB)."); e.target.value = ""; return; }
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (multiplo) setDraft((d) => ({ ...d, [campo]: [...(d[campo] || []), { id: uid(), nome: file.name, tipo: file.type, dataUrl: reader.result }] }));
+      else setDraft((d) => ({ ...d, [campo]: { nome: file.name, tipo: file.type, dataUrl: reader.result } }));
+    };
+    reader.readAsDataURL(file);
+    e.target.value = "";
+  }
+  function removerAnexo(id) { setDraft((d) => ({ ...d, anexos: (d.anexos || []).filter((a) => a.id !== id) })); }
+
+  return (
+    <Card title="Motoristas" subtitle="Cadastro completo, com foto e a CNH digitalizada.">
+      <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr", gap: 10 }}>
+          <Field label="Nome completo"><TextInput value={draft.nomeCompleto} onChange={(e) => setDraft({ ...draft, nomeCompleto: e.target.value })} /></Field>
+          <Field label="Apelido"><TextInput value={draft.apelido} onChange={(e) => setDraft({ ...draft, apelido: e.target.value })} /></Field>
+          <Field label="Telefone"><TextInput value={draft.telefone} onChange={(e) => setDraft({ ...draft, telefone: e.target.value })} /></Field>
+          <Field label="CNH (número)"><TextInput value={draft.cnh} onChange={(e) => setDraft({ ...draft, cnh: e.target.value })} /></Field>
+        </div>
+        <div style={{ display: "flex", gap: 28, flexWrap: "wrap" }}>
+          <div>
+            <div style={{ fontSize: 12.5, fontWeight: 700, color: MUTED, marginBottom: 6 }}>Foto do motorista</div>
+            <input type="file" accept="image/*" onChange={(e) => lerArquivo(e, "foto", false)} style={{ fontSize: 12.5 }} />
+            {draft.foto && <img src={draft.foto.dataUrl} alt="Foto do motorista" style={{ width: 60, height: 60, borderRadius: 8, objectFit: "cover", marginTop: 6, display: "block" }} />}
+          </div>
+          <div>
+            <div style={{ fontSize: 12.5, fontWeight: 700, color: MUTED, marginBottom: 6 }}>Upload da CNH (imagem ou PDF)</div>
+            <input type="file" accept="image/*,.pdf" onChange={(e) => lerArquivo(e, "anexos", true)} style={{ fontSize: 12.5 }} />
+            {!!(draft.anexos || []).length && (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 6 }}>
+                {draft.anexos.map((a) => (
+                  <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 6, background: BG, border: `1px solid ${BORDER}`, borderRadius: 999, padding: "4px 10px", fontSize: 11.5 }}>
+                    <a href={a.dataUrl} download={a.nome} style={{ color: GREEN, textDecoration: "none", fontWeight: 700 }}>{a.nome}</a>
+                    <button type="button" onClick={() => removerAnexo(a.id)} style={{ border: "none", background: "none", color: DANGER, cursor: "pointer", fontWeight: 700 }}>×</button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <Button type="submit">{editing ? "Salvar alteração" : "Adicionar"}</Button>
+          {editing && <Button type="button" variant="ghost" onClick={() => setDraft(blank)}>Cancelar</Button>}
+        </div>
+      </form>
+      <div style={{ height: 1, background: BORDER, margin: "16px 0" }} />
+      <Table
+        columns={[
+          { key: "foto", label: "", render: (r) => (r.foto ? <img src={r.foto.dataUrl} alt="" style={{ width: 32, height: 32, borderRadius: 6, objectFit: "cover" }} /> : "—") },
+          { key: "nomeCompleto", label: "Nome" },
+          { key: "apelido", label: "Apelido" },
+          { key: "telefone", label: "Telefone" },
+          { key: "cnh", label: "CNH" },
+          { key: "anexos", label: "Docs", render: (r) => (r.anexos?.length ? `${r.anexos.length} arquivo(s)` : "—") },
+        ]}
+        rows={items}
+        onEdit={edit}
+        onDelete={remove}
+      />
+    </Card>
+  );
+}
+
+/* Controle de frota própria — abertura e fechamento de viagens de entrega. */
+function FinalizarViagemBtn({ viagem, onFinalizar }) {
+  const [km, setKm] = useState("");
+  return (
+    <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+      <TextInput type="number" placeholder="Km final" value={km} onChange={(e) => setKm(e.target.value)} style={{ width: 90, padding: "4px 8px" }} />
+      <button onClick={() => km && onFinalizar(viagem, km)} style={linkBtnStyle(GREEN)}>finalizar</button>
+    </div>
+  );
+}
+
+function ViagensEntrega({ db, update, filialId }) {
+  const motoristas = db.motoristas.filter((m) => m.filialId === filialId);
+  const veiculos = db.veiculos.filter((v) => v.filialId === filialId);
+  const fretes = db.fretes.filter((f) => f.filialId === filialId);
+  const viagens = db.viagensEntrega.filter((v) => v.filialId === filialId);
+
+  const [form, setForm] = useState({ data: todayISO(), motoristaId: "", veiculoId: "", kmInicial: "", nivelCombustivel: "cheio", rota: "", freteId: "" });
+  const [fotos, setFotos] = useState([]);
+
+  function addFoto(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (file.size > 1.5 * 1024 * 1024) { alert("Foto muito grande (limite 1,5 MB)."); e.target.value = ""; return; }
+    const reader = new FileReader();
+    reader.onload = () => setFotos((f) => [...f, { id: uid(), nome: file.name, dataUrl: reader.result }]);
+    reader.readAsDataURL(file);
+    e.target.value = "";
+  }
+  function removerFoto(id) { setFotos((f) => f.filter((x) => x.id !== id)); }
+
+  function iniciarViagem(e) {
+    e.preventDefault();
+    update((prev) => ({ ...prev, viagensEntrega: [...prev.viagensEntrega, { id: uid(), filialId, ...form, kmInicial: Number(form.kmInicial || 0), kmFinal: "", fotosAntes: fotos, status: "em_andamento" }] }));
+    setForm({ data: todayISO(), motoristaId: "", veiculoId: "", kmInicial: "", nivelCombustivel: "cheio", rota: "", freteId: "" });
+    setFotos([]);
+  }
+
+  function finalizarViagem(v, kmFinal) {
+    update((prev) => ({ ...prev, viagensEntrega: prev.viagensEntrega.map((x) => (x.id === v.id ? { ...x, kmFinal: Number(kmFinal), status: "concluida" } : x)) }));
+  }
+
+  const nomeMot = (id) => { const m = motoristas.find((x) => x.id === id); return m ? (m.apelido || m.nomeCompleto) : "—"; };
+  const nomeVei = (id) => veiculos.find((v) => v.id === id)?.placa || "—";
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <Card title="Controle de frota — iniciar viagem de entrega" subtitle="Registre a saída do veículo próprio: motorista, km inicial, combustível, fotos do carro e rota.">
+        <form onSubmit={iniciarViagem} style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, alignItems: "end" }}>
+          <Field label="Data da saída"><TextInput type="date" value={form.data} onChange={(e) => setForm({ ...form, data: e.target.value })} /></Field>
+          <Field label="Motorista"><Select options={motoristas.map((m) => ({ value: m.id, label: m.apelido || m.nomeCompleto }))} value={form.motoristaId} onChange={(e) => setForm({ ...form, motoristaId: e.target.value })} /></Field>
+          <Field label="Veículo"><Select options={veiculos.map((v) => ({ value: v.id, label: v.placa }))} value={form.veiculoId} onChange={(e) => setForm({ ...form, veiculoId: e.target.value })} /></Field>
+          <Field label="Km inicial"><TextInput type="number" value={form.kmInicial} onChange={(e) => setForm({ ...form, kmInicial: e.target.value })} /></Field>
+          <Field label="Nível de combustível">
+            <Select options={[{ value: "cheio", label: "Cheio" }, { value: "3/4", label: "3/4" }, { value: "1/2", label: "1/2" }, { value: "1/4", label: "1/4" }, { value: "reserva", label: "Reserva" }]} value={form.nivelCombustivel} onChange={(e) => setForm({ ...form, nivelCombustivel: e.target.value })} />
+          </Field>
+          <Field label="Frete relacionado (opcional)"><Select options={fretes.map((f) => ({ value: f.id, label: `${f.destino || "Sem destino"} — ${brl(f.valorFrete)}` }))} value={form.freteId} onChange={(e) => setForm({ ...form, freteId: e.target.value })} /></Field>
+          <Field label="Rota de entrega"><TextInput value={form.rota} onChange={(e) => setForm({ ...form, rota: e.target.value })} /></Field>
+          <div>
+            <div style={{ fontSize: 12.5, fontWeight: 700, color: MUTED, marginBottom: 6 }}>Fotos do carro antes de sair</div>
+            <input type="file" accept="image/*" onChange={addFoto} style={{ fontSize: 12.5 }} />
+          </div>
+          {!!fotos.length && (
+            <div style={{ gridColumn: "1 / -1", display: "flex", flexWrap: "wrap", gap: 8 }}>
+              {fotos.map((f) => (
+                <div key={f.id} style={{ position: "relative" }}>
+                  <img src={f.dataUrl} alt="" style={{ width: 70, height: 70, objectFit: "cover", borderRadius: 8, border: `1px solid ${BORDER}` }} />
+                  <button type="button" onClick={() => removerFoto(f.id)} style={{ position: "absolute", top: -6, right: -6, background: DANGER, color: "#fff", border: "none", borderRadius: "50%", width: 20, height: 20, cursor: "pointer", fontSize: 11 }}>×</button>
+                </div>
+              ))}
+            </div>
+          )}
+          <div style={{ gridColumn: "1 / -1" }}><Button type="submit">Registrar saída</Button></div>
+        </form>
+      </Card>
+      <Card title={`Viagens (${viagens.length})`}>
+        <Table
+          columns={[
+            { key: "data", label: "Data" },
+            { key: "motoristaId", label: "Motorista", render: (r) => nomeMot(r.motoristaId) },
+            { key: "veiculoId", label: "Veículo", render: (r) => nomeVei(r.veiculoId) },
+            { key: "rota", label: "Rota" },
+            { key: "kmInicial", label: "Km inicial", render: (r) => Number(r.kmInicial || 0).toLocaleString("pt-BR") },
+            { key: "kmFinal", label: "Km final", render: (r) => (r.kmFinal ? Number(r.kmFinal).toLocaleString("pt-BR") : "—") },
+            { key: "nivelCombustivel", label: "Combustível" },
+            { key: "fotosAntes", label: "Fotos", render: (r) => (r.fotosAntes?.length ? `${r.fotosAntes.length} foto(s)` : "—") },
+            { key: "status", label: "Status", render: (r) => (r.status === "concluida" ? <span style={{ color: SUCCESS, fontWeight: 700, fontSize: 12 }}>Concluída</span> : <FinalizarViagemBtn viagem={r} onFinalizar={finalizarViagem} />) },
+          ]}
+          rows={[...viagens].sort((a, b) => (a.data < b.data ? 1 : -1))}
+          emptyText="Nenhuma viagem registrada ainda."
+        />
+      </Card>
+    </div>
+  );
+}
+
 function Logistica({ db, update, filialId }) {
   const motoristas = db.motoristas.filter((m) => m.filialId === filialId);
   const veiculos = db.veiculos.filter((v) => v.filialId === filialId);
@@ -2355,21 +2599,20 @@ function Logistica({ db, update, filialId }) {
     update((prev) => ({ ...prev, fretes: prev.fretes.map((x) => (x.id === f.id ? { ...x, statusPagamento: status } : x)) }));
   }
 
-  const nomeMotorista = (id) => motoristas.find((m) => m.id === id)?.nome || "—";
+  const nomeMotorista = (id) => { const m = motoristas.find((x) => x.id === id); return m ? (m.apelido || m.nomeCompleto) : "—"; };
   const nomeVeiculo = (id) => veiculos.find((v) => v.id === id)?.placa || "—";
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-        <CrudBlock title="Motoristas" filialId={filialId} items={motoristas} onChange={(items) => update((prev) => ({ ...prev, motoristas: mergeByFilial(prev.motoristas, items, filialId) }))}
-          fields={[{ key: "nome", label: "Nome", required: true }, { key: "cnh", label: "CNH" }]} />
+        <CadastroMotoristas items={motoristas} filialId={filialId} onChange={(items) => update((prev) => ({ ...prev, motoristas: mergeByFilial(prev.motoristas, items, filialId) }))} />
         <CrudBlock title="Veículos" filialId={filialId} items={veiculos} onChange={(items) => update((prev) => ({ ...prev, veiculos: mergeByFilial(prev.veiculos, items, filialId) }))}
           fields={[{ key: "placa", label: "Placa", required: true }, { key: "modelo", label: "Modelo" }]} />
       </div>
       <Card title="Lançar frete" subtitle="Gera uma conta a pagar e entra como despesa de logística na DRE.">
         <form onSubmit={lancar} style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr 1fr", gap: 10, alignItems: "end" }}>
           <Field label="Data"><TextInput type="date" value={form.data} onChange={(e) => setForm({ ...form, data: e.target.value })} /></Field>
-          <Field label="Motorista"><Select options={motoristas.map((m) => ({ value: m.id, label: m.nome }))} value={form.motoristaId} onChange={(e) => setForm({ ...form, motoristaId: e.target.value })} /></Field>
+          <Field label="Motorista"><Select options={motoristas.map((m) => ({ value: m.id, label: m.apelido || m.nomeCompleto }))} value={form.motoristaId} onChange={(e) => setForm({ ...form, motoristaId: e.target.value })} /></Field>
           <Field label="Veículo"><Select options={veiculos.map((v) => ({ value: v.id, label: v.placa }))} value={form.veiculoId} onChange={(e) => setForm({ ...form, veiculoId: e.target.value })} /></Field>
           <Field label="Destino"><TextInput value={form.destino} onChange={(e) => setForm({ ...form, destino: e.target.value })} /></Field>
           <Field label="Valor (R$)"><TextInput type="number" step="0.01" value={form.valorFrete} onChange={(e) => setForm({ ...form, valorFrete: e.target.value })} /></Field>
@@ -2389,6 +2632,10 @@ function Logistica({ db, update, filialId }) {
           rows={[...fretes].sort((a, b) => (a.data < b.data ? 1 : -1))}
         />
       </Card>
+
+      <div style={{ height: 1, background: BORDER, margin: "6px 0" }} />
+      <div style={{ fontSize: 15, fontWeight: 800, color: GREEN }}>Controle de Frota Própria</div>
+      <ViagensEntrega db={db} update={update} filialId={filialId} />
     </div>
   );
 }
@@ -2499,6 +2746,169 @@ function Fiscal({ db, update, filialId }) {
 
 /* ---------------- Folha de Pagamento ---------------- */
 
+function tempoDeEmpresa(dataContratacaoISO) {
+  if (!dataContratacaoISO) return "—";
+  const inicio = new Date(dataContratacaoISO + "T00:00:00");
+  const hoje = new Date();
+  if (inicio > hoje) return "contratação futura";
+  let anos = hoje.getFullYear() - inicio.getFullYear();
+  let meses = hoje.getMonth() - inicio.getMonth();
+  if (hoje.getDate() < inicio.getDate()) meses--;
+  if (meses < 0) { anos--; meses += 12; }
+  const partes = [];
+  if (anos > 0) partes.push(`${anos} ano${anos > 1 ? "s" : ""}`);
+  if (meses > 0 || !anos) partes.push(`${meses} ${meses === 1 ? "mês" : "meses"}`);
+  return partes.join(" e ") || "menos de 1 mês";
+}
+
+const SIM_NAO = [{ value: "true", label: "Sim" }, { value: "false", label: "Não" }];
+const ehSim = (v) => v === true || v === "true";
+
+/* Cadastro completo de funcionário — dados pessoais, contratação, saúde e segurança.
+   Contém dados sensíveis (LGPD): restrinja o acesso a este módulo via Usuários & Permissões. */
+function CadastroFuncionario({ items, onChange, filialId }) {
+  const blank = {
+    id: null, nome: "", cargo: "", salarioBruto: "", encargosPercentual: "", beneficios: "", ativo: "true",
+    foto: null, tipoDocumento: "RG", numeroDocumento: "", anexos: [],
+    cargoConfianca: "false", deficiente: "false", qualDeficiencia: "", alergias: "",
+    ultimoEmprego: "", contatoFamiliaNome: "", contatoFamiliaTelefone: "",
+    antecedentesCriminais: "false", passagemPolicia: "false",
+    dataContratacao: "", entrevistadoPor: "", emiteHolerite: "true",
+    tipoSanguineo: "", tomaRemedioControlado: "false", qualRemedio: "",
+  };
+  const [draft, setDraft] = useState(blank);
+  const editing = !!draft.id;
+
+  function submit(e) {
+    e.preventDefault();
+    if (!draft.nome) return;
+    if (editing) onChange(items.map((it) => (it.id === draft.id ? draft : it)));
+    else onChange([...items, { ...draft, id: uid(), filialId }]);
+    setDraft(blank);
+  }
+  function edit(row) { setDraft({ ...blank, ...row }); }
+  function remove(row) { onChange(items.filter((it) => it.id !== row.id)); if (draft.id === row.id) setDraft(blank); }
+
+  function lerArquivo(e, campo, multiplo) {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (file.size > 1.5 * 1024 * 1024) { alert("Arquivo muito grande para este protótipo (limite 1,5 MB)."); e.target.value = ""; return; }
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (multiplo) setDraft((d) => ({ ...d, [campo]: [...(d[campo] || []), { id: uid(), nome: file.name, tipo: file.type, dataUrl: reader.result }] }));
+      else setDraft((d) => ({ ...d, [campo]: { nome: file.name, tipo: file.type, dataUrl: reader.result } }));
+    };
+    reader.readAsDataURL(file);
+    e.target.value = "";
+  }
+  function removerAnexo(id) { setDraft((d) => ({ ...d, anexos: (d.anexos || []).filter((a) => a.id !== id) })); }
+
+  const secao = (titulo) => <div style={{ fontSize: 12.5, fontWeight: 800, color: GREEN, marginTop: 10, textTransform: "uppercase", letterSpacing: 0.4 }}>{titulo}</div>;
+
+  return (
+    <Card title={editing ? "Editar funcionário" : "Novo funcionário"} subtitle="Dados de saúde, antecedentes e deficiência são sensíveis pela LGPD — restrinja o acesso a este módulo via Usuários & Permissões.">
+      <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        {secao("Dados pessoais")}
+        <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: 10 }}>
+          <Field label="Nome completo"><TextInput value={draft.nome} onChange={(e) => setDraft({ ...draft, nome: e.target.value })} /></Field>
+          <Field label="Cargo"><TextInput value={draft.cargo} onChange={(e) => setDraft({ ...draft, cargo: e.target.value })} /></Field>
+          <Field label="Situação"><Select options={[{ value: "true", label: "Ativo" }, { value: "false", label: "Inativo" }]} value={draft.ativo} onChange={(e) => setDraft({ ...draft, ativo: e.target.value })} /></Field>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
+          <Field label="Tipo de documento"><Select options={[{ value: "RG", label: "RG" }, { value: "CNH", label: "CNH" }]} value={draft.tipoDocumento} onChange={(e) => setDraft({ ...draft, tipoDocumento: e.target.value })} /></Field>
+          <Field label="Número do documento"><TextInput value={draft.numeroDocumento} onChange={(e) => setDraft({ ...draft, numeroDocumento: e.target.value })} /></Field>
+          <Field label="Tipo sanguíneo">
+            <Select options={["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"].map((t) => ({ value: t, label: t }))} value={draft.tipoSanguineo} onChange={(e) => setDraft({ ...draft, tipoSanguineo: e.target.value })} />
+          </Field>
+        </div>
+        <div style={{ display: "flex", gap: 28, flexWrap: "wrap" }}>
+          <div>
+            <div style={{ fontSize: 12.5, fontWeight: 700, color: MUTED, marginBottom: 6 }}>Foto</div>
+            <input type="file" accept="image/*" onChange={(e) => lerArquivo(e, "foto", false)} style={{ fontSize: 12.5 }} />
+            {draft.foto && <img src={draft.foto.dataUrl} alt="Foto" style={{ width: 60, height: 60, borderRadius: 8, objectFit: "cover", marginTop: 6, display: "block" }} />}
+          </div>
+          <div>
+            <div style={{ fontSize: 12.5, fontWeight: 700, color: MUTED, marginBottom: 6 }}>Upload de documentos (RG/CNH, contrato etc.)</div>
+            <input type="file" accept="image/*,.pdf" onChange={(e) => lerArquivo(e, "anexos", true)} style={{ fontSize: 12.5 }} />
+            {!!(draft.anexos || []).length && (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 6 }}>
+                {draft.anexos.map((a) => (
+                  <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 6, background: BG, border: `1px solid ${BORDER}`, borderRadius: 999, padding: "4px 10px", fontSize: 11.5 }}>
+                    <a href={a.dataUrl} download={a.nome} style={{ color: GREEN, textDecoration: "none", fontWeight: 700 }}>{a.nome}</a>
+                    <button type="button" onClick={() => removerAnexo(a.id)} style={{ border: "none", background: "none", color: DANGER, cursor: "pointer", fontWeight: 700 }}>×</button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {secao("Contratação")}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 10 }}>
+          <Field label="Data de contratação"><TextInput type="date" value={draft.dataContratacao} onChange={(e) => setDraft({ ...draft, dataContratacao: e.target.value })} /></Field>
+          <Field label="Tempo de empresa"><TextInput value={tempoDeEmpresa(draft.dataContratacao)} disabled style={{ background: BG, color: MUTED }} /></Field>
+          <Field label="Quem entrevistou"><TextInput value={draft.entrevistadoPor} onChange={(e) => setDraft({ ...draft, entrevistadoPor: e.target.value })} /></Field>
+          <Field label="Último emprego"><TextInput value={draft.ultimoEmprego} onChange={(e) => setDraft({ ...draft, ultimoEmprego: e.target.value })} /></Field>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+          <Field label="Cargo de confiança?"><Select options={SIM_NAO} value={draft.cargoConfianca} onChange={(e) => setDraft({ ...draft, cargoConfianca: e.target.value })} /></Field>
+          <Field label="Emite holerite?"><Select options={SIM_NAO} value={draft.emiteHolerite} onChange={(e) => setDraft({ ...draft, emiteHolerite: e.target.value })} /></Field>
+        </div>
+
+        {secao("Financeiro / Folha")}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
+          <Field label="Salário bruto (R$)"><TextInput type="number" value={draft.salarioBruto} onChange={(e) => setDraft({ ...draft, salarioBruto: e.target.value })} /></Field>
+          <Field label="Encargos (%)"><TextInput type="number" value={draft.encargosPercentual} onChange={(e) => setDraft({ ...draft, encargosPercentual: e.target.value })} /></Field>
+          <Field label="Benefícios (R$)"><TextInput type="number" value={draft.beneficios} onChange={(e) => setDraft({ ...draft, beneficios: e.target.value })} /></Field>
+        </div>
+
+        {secao("Saúde")}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 10 }}>
+          <Field label="Possui deficiência (PCD)?"><Select options={SIM_NAO} value={draft.deficiente} onChange={(e) => setDraft({ ...draft, deficiente: e.target.value })} /></Field>
+          {ehSim(draft.deficiente) && <Field label="Qual deficiência"><TextInput value={draft.qualDeficiencia} onChange={(e) => setDraft({ ...draft, qualDeficiencia: e.target.value })} /></Field>}
+        </div>
+        <Field label="Alergias"><TextInput value={draft.alergias} onChange={(e) => setDraft({ ...draft, alergias: e.target.value })} /></Field>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 10 }}>
+          <Field label="Toma remédio controlado?"><Select options={SIM_NAO} value={draft.tomaRemedioControlado} onChange={(e) => setDraft({ ...draft, tomaRemedioControlado: e.target.value })} /></Field>
+          {ehSim(draft.tomaRemedioControlado) && <Field label="Qual remédio"><TextInput value={draft.qualRemedio} onChange={(e) => setDraft({ ...draft, qualRemedio: e.target.value })} /></Field>}
+        </div>
+
+        {secao("Segurança")}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+          <Field label="Antecedentes criminais?"><Select options={SIM_NAO} value={draft.antecedentesCriminais} onChange={(e) => setDraft({ ...draft, antecedentesCriminais: e.target.value })} /></Field>
+          <Field label="Tem passagem pela polícia?"><Select options={SIM_NAO} value={draft.passagemPolicia} onChange={(e) => setDraft({ ...draft, passagemPolicia: e.target.value })} /></Field>
+        </div>
+
+        {secao("Contato de emergência (família)")}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+          <Field label="Nome"><TextInput value={draft.contatoFamiliaNome} onChange={(e) => setDraft({ ...draft, contatoFamiliaNome: e.target.value })} /></Field>
+          <Field label="Telefone"><TextInput value={draft.contatoFamiliaTelefone} onChange={(e) => setDraft({ ...draft, contatoFamiliaTelefone: e.target.value })} /></Field>
+        </div>
+
+        <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
+          <Button type="submit">{editing ? "Salvar alteração" : "Adicionar"}</Button>
+          {editing && <Button type="button" variant="ghost" onClick={() => setDraft(blank)}>Cancelar</Button>}
+        </div>
+      </form>
+      <div style={{ height: 1, background: BORDER, margin: "16px 0" }} />
+      <Table
+        columns={[
+          { key: "foto", label: "", render: (r) => (r.foto ? <img src={r.foto.dataUrl} alt="" style={{ width: 32, height: 32, borderRadius: 6, objectFit: "cover" }} /> : "—") },
+          { key: "nome", label: "Nome" },
+          { key: "cargo", label: "Cargo" },
+          { key: "salarioBruto", label: "Bruto", render: (r) => brl(r.salarioBruto) },
+          { key: "dataContratacao", label: "Contratado em" },
+          { key: "tempoEmpresa", label: "Tempo de empresa", render: (r) => tempoDeEmpresa(r.dataContratacao) },
+          { key: "ativo", label: "Situação", render: (r) => (r.ativo === false || r.ativo === "false" ? "Inativo" : "Ativo") },
+        ]}
+        rows={items}
+        onEdit={edit}
+        onDelete={remove}
+      />
+    </Card>
+  );
+}
+
 function FolhaPagamento({ db, update, filialId }) {
   const funcionarios = db.funcionarios.filter((f) => f.filialId === filialId);
   const ativos = funcionarios.filter((f) => f.ativo !== false && f.ativo !== "false");
@@ -2508,6 +2918,8 @@ function FolhaPagamento({ db, update, filialId }) {
   const beneficiosTotal = ativos.reduce((s, f) => s + Number(f.beneficios || 0), 0);
   const folhaTotalMensal = folhaBruta + encargosTotal + beneficiosTotal;
 
+  function onChange(items) { update((prev) => ({ ...prev, funcionarios: mergeByFilial(prev.funcionarios, items, filialId) })); }
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
@@ -2516,29 +2928,7 @@ function FolhaPagamento({ db, update, filialId }) {
         <StatCard label="Benefícios" value={brl(beneficiosTotal)} accent={MUTED} />
         <StatCard label="Folha total / mês" value={brl(folhaTotalMensal)} accent={DANGER} />
       </div>
-      <CrudBlock
-        title="Funcionários"
-        subtitle="Encargos em % sobre o salário bruto (INSS patronal, FGTS, 13º/férias provisionados etc.). Colaboradores inativos não entram nos totais acima."
-        filialId={filialId}
-        items={funcionarios}
-        onChange={(items) => update((prev) => ({ ...prev, funcionarios: mergeByFilial(prev.funcionarios, items, filialId) }))}
-        fields={[
-          { key: "nome", label: "Nome", required: true },
-          { key: "cargo", label: "Cargo" },
-          { key: "salarioBruto", label: "Salário bruto (R$)", type: "number" },
-          { key: "encargosPercentual", label: "Encargos (%)", type: "number" },
-          { key: "beneficios", label: "Benefícios (R$)", type: "number" },
-          { key: "ativo", label: "Situação", type: "select", options: [{ value: "true", label: "Ativo" }, { value: "false", label: "Inativo" }] },
-        ]}
-        columns={[
-          { key: "nome", label: "Nome" },
-          { key: "cargo", label: "Cargo" },
-          { key: "salarioBruto", label: "Bruto", render: (r) => brl(r.salarioBruto) },
-          { key: "encargosPercentual", label: "Encargos", render: (r) => `${r.encargosPercentual || 0}%` },
-          { key: "beneficios", label: "Benefícios", render: (r) => brl(r.beneficios) },
-          { key: "ativo", label: "Situação", render: (r) => (r.ativo === false || r.ativo === "false" ? "Inativo" : "Ativo") },
-        ]}
-      />
+      <CadastroFuncionario items={funcionarios} onChange={onChange} filialId={filialId} />
     </div>
   );
 }
@@ -2575,9 +2965,10 @@ function RelatorioGerencial({ db, update, filialId }) {
 
   const comissoes = vendas.reduce((s, v) => s + Number(v.comissaoValor || 0) + Number(v.comissaoGerenteValor || 0), 0);
   const custoInsumos = compras.filter((c) => c.categoria === "insumo").reduce((s, c) => s + Number(c.valor || 0), 0);
+  const custoPintinhos = compras.filter((c) => c.categoria === "pintinhos").reduce((s, c) => s + Number(c.valor || 0), 0);
   const despesasAdm = compras.filter((c) => c.categoria === "administrativo").reduce((s, c) => s + Number(c.valor || 0), 0);
   const manutencao = compras.filter((c) => c.categoria === "manutencao").reduce((s, c) => s + Number(c.valor || 0), 0);
-  const outrasCompras = compras.filter((c) => !["insumo", "administrativo", "manutencao"].includes(c.categoria)).reduce((s, c) => s + Number(c.valor || 0), 0);
+  const outrasCompras = compras.filter((c) => !["insumo", "administrativo", "manutencao", "pintinhos"].includes(c.categoria)).reduce((s, c) => s + Number(c.valor || 0), 0);
   const despesasFrete = fretes.reduce((s, f) => s + Number(f.valorFrete || 0), 0);
   const despesasAvulsas = avulsasPeriodo.filter((a) => a.tipo === "pagar").reduce((s, a) => s + Number(a.valor || 0), 0);
 
@@ -2712,11 +3103,14 @@ function ProducaoAvicola({ db, update, filialId }) {
   const posturas = db.registrosPostura.filter((p) => p.filialId === filialId);
   const mortalidades = db.registrosMortalidade.filter((m) => m.filialId === filialId);
   const estercos = db.registrosEsterco.filter((e) => e.filialId === filialId);
+  const descartes = db.registrosDescarte.filter((d) => d.filialId === filialId);
   const producoesRacao = db.producoesRacao.filter((p) => p.filialId === filialId);
+  const equipeManejo = db.equipeManejo.filter((m) => m.filialId === filialId);
   const [tempoCriaRecria, setTempoCriaRecria] = useState(120);
 
   const mortesDoLote = (loteId) => mortalidades.filter((m) => m.loteId === loteId).reduce((s, m) => s + Number(m.avesMortas || 0), 0);
-  const quantidadeAtual = (lote) => Math.max(0, Number(lote.quantidadeAlojada || 0) - mortesDoLote(lote.id));
+  const descartesDoLote = (loteId) => descartes.filter((d) => d.loteId === loteId).reduce((s, d) => s + Number(d.quantidade || 0), 0);
+  const quantidadeAtual = (lote) => Math.max(0, Number(lote.quantidadeAlojada || 0) - mortesDoLote(lote.id) - descartesDoLote(lote.id));
 
   const totalAvesVivas = lotes.reduce((s, l) => s + quantidadeAtual(l), 0);
   const custoRacaoTotal = producoesRacao.reduce((s, p) => s + Number(p.custoTotal || 0), 0);
@@ -2736,10 +3130,10 @@ function ProducaoAvicola({ db, update, filialId }) {
   const estercoArmazenado = Math.max(0, estercoProduzido - estercoVendidoTon);
 
   const alertasReposicao = lotes
-    .filter((l) => l.fase === "postura" && l.dataPrevistaDescarte)
+    .filter((l) => l.fase === "postura" && l.proximaFase === "descarte" && l.dataProximaFase)
     .map((l) => {
-      const diasRestantes = Math.round((new Date(l.dataPrevistaDescarte + "T00:00:00") - new Date(hoje + "T00:00:00")) / 86400000);
-      const dataSugeridaCompra = new Date(new Date(l.dataPrevistaDescarte + "T00:00:00").getTime() - tempoCriaRecria * 86400000).toISOString().slice(0, 10);
+      const diasRestantes = Math.round((new Date(l.dataProximaFase + "T00:00:00") - new Date(hoje + "T00:00:00")) / 86400000);
+      const dataSugeridaCompra = new Date(new Date(l.dataProximaFase + "T00:00:00").getTime() - tempoCriaRecria * 86400000).toISOString().slice(0, 10);
       return { ...l, diasRestantes, dataSugeridaCompra, quantidadeSugerida: l.quantidadeAlojada };
     })
     .filter((l) => l.diasRestantes <= tempoCriaRecria + 30)
@@ -2783,7 +3177,7 @@ function ProducaoAvicola({ db, update, filialId }) {
       />
 
       <CrudBlock
-        title="Lotes de Aves" subtitle="Manejo, descarte e abate — quantidade atual já desconta as mortes registradas abaixo." filialId={filialId}
+        title="Lotes de Aves" subtitle="Manejo, descarte e abate — quantidade atual já desconta mortes e descartes registrados abaixo. Preencha 'Próxima fase' e sua data para o sistema avisar automaticamente (30, 14 e 2 dias antes)." filialId={filialId}
         items={lotes} onChange={(items) => update((prev) => ({ ...prev, lotesAves: mergeByFilial(prev.lotesAves, items, filialId) }))}
         fields={[
           { key: "codigo", label: "Código do lote", required: true },
@@ -2791,16 +3185,69 @@ function ProducaoAvicola({ db, update, filialId }) {
           { key: "linhagem", label: "Linhagem" },
           { key: "dataAlojamento", label: "Data de alojamento", type: "date" },
           { key: "quantidadeAlojada", label: "Quantidade alojada", type: "number" },
-          { key: "fase", label: "Fase", type: "select", options: [{ value: "cria", label: "Cria" }, { value: "recria", label: "Recria" }, { value: "postura", label: "Postura" }, { value: "descarte", label: "Descarte/Abate" }] },
-          { key: "dataPrevistaDescarte", label: "Previsão de descarte", type: "date" },
+          { key: "fase", label: "Fase atual", type: "select", options: [{ value: "cria", label: "Cria" }, { value: "recria", label: "Recria" }, { value: "postura", label: "Postura" }, { value: "descarte", label: "Descarte/Abate" }] },
+          { key: "proximaFase", label: "Próxima fase", type: "select", options: [{ value: "recria", label: "Recria" }, { value: "postura", label: "Postura" }, { value: "descarte", label: "Descarte/Abate" }] },
+          { key: "dataProximaFase", label: "Data prevista da próxima fase", type: "date" },
         ]}
         columns={[
           { key: "codigo", label: "Lote" },
           { key: "galpaoId", label: "Galpão", render: (r) => galpoes.find((g) => g.id === r.galpaoId)?.nome || "—" },
-          { key: "fase", label: "Fase" },
+          { key: "fase", label: "Fase atual" },
           { key: "quantidadeAlojada", label: "Alojada", render: (r) => Number(r.quantidadeAlojada || 0).toLocaleString("pt-BR") },
           { key: "quantidadeAtual", label: "Atual (viva)", render: (r) => quantidadeAtual(r).toLocaleString("pt-BR") },
-          { key: "dataPrevistaDescarte", label: "Previsão descarte" },
+          { key: "proximaFase", label: "Próxima fase" },
+          { key: "dataProximaFase", label: "Data prevista" },
+        ]}
+      />
+
+      <CrudBlock
+        title="Equipe de Manejo" subtitle="Quem recebe os alertas por e-mail de troca de fase dos lotes (30, 14 e 2 dias antes)." filialId={filialId}
+        items={equipeManejo} onChange={(items) => update((prev) => ({ ...prev, equipeManejo: mergeByFilial(prev.equipeManejo, items, filialId) }))}
+        fields={[
+          { key: "nome", label: "Nome", required: true },
+          { key: "email", label: "E-mail", type: "email", required: true },
+          { key: "telefone", label: "Telefone" },
+          { key: "area", label: "Área/função" },
+          { key: "ativo", label: "Situação", type: "select", options: [{ value: "true", label: "Ativo" }, { value: "false", label: "Inativo" }] },
+        ]}
+        columns={[
+          { key: "nome", label: "Nome" },
+          { key: "email", label: "E-mail" },
+          { key: "area", label: "Área" },
+          { key: "ativo", label: "Situação", render: (r) => (r.ativo === false || r.ativo === "false" ? "Inativo" : "Ativo") },
+        ]}
+      />
+
+      <CrudBlock
+        title="Descarte de lotes (venda de galinhas)" subtitle="Saída de aves vivas por venda/descarte — desconta do total de aves vivas do lote e gera conta a receber automaticamente." filialId={filialId}
+        items={descartes} onChange={(items) => {
+          update((prev) => {
+            const antigos = prev.registrosDescarte.filter((d) => d.filialId === filialId);
+            const novos = items.filter((it) => !antigos.some((a) => a.id === it.id));
+            const contasNovas = novos.filter((it) => Number(it.valorVenda) > 0).map((it) => ({
+              id: uid(), filialId, tipo: "receber", descricao: `Venda de descarte — lote ${lotes.find((l) => l.id === it.loteId)?.codigo || it.loteId}`,
+              valor: Number(it.valorVenda), vencimento: it.data || todayISO(), centroCustoId: "", status: "pendente",
+            }));
+            return {
+              ...prev,
+              registrosDescarte: mergeByFilial(prev.registrosDescarte, items, filialId),
+              contasAvulsas: [...prev.contasAvulsas, ...contasNovas],
+            };
+          });
+        }}
+        fields={[
+          { key: "data", label: "Data", type: "date", required: true },
+          { key: "loteId", label: "Lote", type: "select", options: lotes.map((l) => ({ value: l.id, label: l.codigo })) },
+          { key: "quantidade", label: "Quantidade de aves", type: "number" },
+          { key: "valorVenda", label: "Valor da venda (R$)", type: "number" },
+          { key: "comprador", label: "Comprador" },
+        ]}
+        columns={[
+          { key: "data", label: "Data" },
+          { key: "loteId", label: "Lote", render: (r) => lotes.find((l) => l.id === r.loteId)?.codigo || "—" },
+          { key: "quantidade", label: "Qtd. aves", render: (r) => Number(r.quantidade || 0).toLocaleString("pt-BR") },
+          { key: "valorVenda", label: "Valor", render: (r) => brl(r.valorVenda) },
+          { key: "comprador", label: "Comprador" },
         ]}
       />
 
@@ -2839,8 +3286,22 @@ function ProducaoAvicola({ db, update, filialId }) {
       />
 
       <CrudBlock
-        title="Esterco — armazenado e vendido" subtitle="Registre a produção (entrada no armazém) e as vendas (saída)." filialId={filialId}
-        items={estercos} onChange={(items) => update((prev) => ({ ...prev, registrosEsterco: mergeByFilial(prev.registrosEsterco, items, filialId) }))}
+        title="Esterco — armazenado e vendido" subtitle="Registre a produção (entrada no armazém) e as vendas (saída) — vendas geram conta a receber automaticamente, aparecendo no Financeiro e na DRE." filialId={filialId}
+        items={estercos} onChange={(items) => {
+          update((prev) => {
+            const antigos = prev.registrosEsterco.filter((e) => e.filialId === filialId);
+            const novos = items.filter((it) => !antigos.some((a) => a.id === it.id));
+            const contasNovas = novos.filter((it) => it.tipo === "venda" && Number(it.valorVenda) > 0).map((it) => ({
+              id: uid(), filialId, tipo: "receber", descricao: `Venda de esterco${it.comprador ? " — " + it.comprador : ""}`,
+              valor: Number(it.valorVenda), vencimento: it.data || todayISO(), centroCustoId: "", status: "pendente",
+            }));
+            return {
+              ...prev,
+              registrosEsterco: mergeByFilial(prev.registrosEsterco, items, filialId),
+              contasAvulsas: [...prev.contasAvulsas, ...contasNovas],
+            };
+          });
+        }}
         fields={[
           { key: "data", label: "Data", type: "date", required: true },
           { key: "tipo", label: "Tipo", type: "select", options: [{ value: "producao", label: "Produção (armazenar)" }, { value: "venda", label: "Venda (saída)" }] },
