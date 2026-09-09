@@ -8,7 +8,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.24.7/babel.min.js"></script>
-<!-- URL e chave de conexão com a planilha ficam em arquivo separado — veja config.js -->
+<!-- URL e chave de conexão com o banco de dados ficam em arquivo separado — veja config.js -->
 <script src="config.js"></script>
 <style>
   html, body, #root { height: 100%; margin: 0; }
@@ -411,9 +411,9 @@ function hasStorage() {
 }
 
 /* Config de conexão (URL do Apps Script + chave de API) — isso sim fica local
-   em cada dispositivo, pois cada um precisa saber a qual planilha se conectar.
+   em cada dispositivo, pois cada um precisa saber a qual banco de dados se conectar.
    Os DADOS do sistema (vendas, produtos etc.) não ficam mais aqui — vivem na
-   planilha do Google Sheets, acessada via apiLoadDB/apiSaveDB abaixo. */
+   banco de dados, acessado via apiLoadDB/apiSaveDB abaixo. */
 const CONN_KEY = "avisoft-conn-v1";
 
 async function loadConnection() {
@@ -447,7 +447,7 @@ function traduzErroApi(codigo) {
   return mapa[codigo] || codigo || "Erro desconhecido.";
 }
 
-/* Lê o banco de dados inteiro da planilha (uma aba por coleção). */
+/* Lê o banco de dados inteiro (uma aba por coleção). */
 async function apiLoadDB(conn) {
   const sep = conn.apiUrl.indexOf("?") >= 0 ? "&" : "?";
   const url = conn.apiUrl + sep + "apiKey=" + encodeURIComponent(conn.apiKey);
@@ -996,7 +996,7 @@ function AvisoftApp() {
   if (conn === undefined || (conn && loading)) {
     return (
       <div style={{ ...shell(), justifyContent: "center", alignItems: "center" }}>
-        <GalinhaCarregando mensagem="Conectando à planilha" />
+        <GalinhaCarregando mensagem="Conectando AVISOFT ERP" />
       </div>
     );
   }
@@ -1009,7 +1009,7 @@ function AvisoftApp() {
     return (
       <div style={{ ...shell(), justifyContent: "center", alignItems: "center", padding: 24 }}>
         <div style={{ background: CARD, border: `1px solid ${DANGER}`, borderRadius: 12, padding: 24, maxWidth: 520 }}>
-          <div style={{ fontSize: 16, fontWeight: 800, color: DANGER, marginBottom: 8 }}>Não consegui carregar os dados da planilha</div>
+          <div style={{ fontSize: 16, fontWeight: 800, color: DANGER, marginBottom: 8 }}>Não consegui conectar ao banco de dados</div>
           <div style={{ fontSize: 12.5, color: MUTED, marginBottom: 12 }}>{connError}</div>
           <div style={{ display: "flex", gap: 8 }}>
             <Button onClick={() => setConn({ ...conn })}>Tentar de novo</Button>
@@ -1050,7 +1050,7 @@ function AvisoftApp() {
       <AlertaFasesLote db={db} update={update} filialId={session.filialId} />
       {saveError && (
         <div style={{ position: "fixed", top: 10, right: 10, background: DANGER, color: "#fff", padding: "8px 14px", borderRadius: 8, fontSize: 12.5, zIndex: 50, maxWidth: 360 }}>
-          Não foi possível salvar na planilha: {saveError}
+          Não foi possível salvar no banco de dados: {saveError}
         </div>
       )}
       <Sidebar
@@ -1092,7 +1092,7 @@ function shell(isMobile) {
 
 /* ---------------- Onboarding (first run) ---------------- */
 
-/* ---------------- Configuração de conexão (Google Sheets) ---------------- */
+/* ---------------- Configuração de conexão (Banco de Dados) ---------------- */
 
 function ConexaoSetup({ onConectado }) {
   const [apiUrl, setApiUrl] = useState("");
@@ -1119,9 +1119,9 @@ function ConexaoSetup({ onConectado }) {
     <div style={{ ...shell(), justifyContent: "center", alignItems: "center" }}>
       <form onSubmit={testarEConectar} style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 14, padding: 32, width: 560, maxWidth: "92vw", display: "flex", flexDirection: "column", gap: 16 }}>
         <div>
-          <div style={{ fontSize: 12, fontWeight: 800, color: GOLD, letterSpacing: 1 }}>CONECTAR AO</div>
-          <div style={{ fontSize: 26, fontWeight: 800, color: GREEN }}>Google Sheets</div>
-          <div style={{ fontSize: 12.5, color: MUTED, marginTop: 4 }}>O AVISOFT usa sua planilha do Google como banco de dados. Cole abaixo a URL do Web App e a chave de API geradas ao implantar o script — veja o arquivo Code.gs para o passo a passo.</div>
+          <div style={{ fontSize: 12, fontWeight: 800, color: GOLD, letterSpacing: 1 }}>CONECTANDO AO</div>
+          <div style={{ fontSize: 26, fontWeight: 800, color: GREEN }}>Banco de Dados</div>
+          <div style={{ fontSize: 12.5, color: MUTED, marginTop: 4 }}>O AVISOFT usa um banco de dados na nuvem. Cole abaixo a URL do Web App e a chave de API geradas ao implantar o script — veja o arquivo Code.gs para o passo a passo.</div>
         </div>
         <Field label="URL do aplicativo da Web (Apps Script)">
           <TextInput placeholder="https://script.google.com/macros/s/AKfycb.../exec" value={apiUrl} onChange={(e) => setApiUrl(e.target.value)} />
@@ -3578,7 +3578,7 @@ function SensoresIoT({ conn, db, filialId }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <div style={{ background: "#EDE7F6", border: "1px solid #C9B8E8", borderRadius: 10, padding: "12px 14px", fontSize: 12.5, color: "#4A3A70" }}>
-        Este módulo lê as leituras enviadas por sensores/hardware de galpão (temperatura, umidade, amônia, peso, consumo de água/ração) diretamente para a planilha, via o endpoint <code>action=hardware</code> do Apps Script — sem passar pelo app. Cada leitura vira uma nova linha; nada é sobrescrito.
+        Este módulo lê as leituras enviadas por sensores/hardware de galpão (temperatura, umidade, amônia, peso, consumo de água/ração) diretamente para o banco de dados, via o endpoint <code>action=hardware</code> do Apps Script — sem passar pelo app. Cada leitura vira uma nova linha; nada é sobrescrito.
       </div>
 
       <Card title="Como um dispositivo deve enviar dados" subtitle="POST para a mesma URL do Apps Script, com Content-Type: text/plain e o corpo abaixo em JSON.">
