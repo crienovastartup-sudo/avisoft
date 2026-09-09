@@ -1357,6 +1357,40 @@ function mergeByFilial(all, editedSubset, filialId) {
   return [...others, ...editedSubset];
 }
 
+/* Localiza um produto pelo nome (cria se não existir) — usado para gerar vendas
+   automaticamente a partir de registros operacionais (descarte, esterco). */
+function encontrarOuCriarProdutoPorNome(produtosAtuais, filialId, nome, unidade, cfop) {
+  const existente = produtosAtuais.find((p) => p.filialId === filialId && p.nome.trim().toLowerCase() === nome.trim().toLowerCase());
+  if (existente) return { produto: existente, produtosAtualizados: produtosAtuais };
+  const novo = { id: uid(), filialId, nome, tipo: "outro", unidade, custoUnit: 0, precoVenda: 0, lote: "", cfop };
+  return { produto: novo, produtosAtualizados: [...produtosAtuais, novo] };
+}
+
+/* Localiza um cliente pelo nome do comprador (cria um cadastro mínimo se não existir). */
+function encontrarOuCriarClientePorNome(clientesAtuais, filialId, nomeComprador) {
+  if (!nomeComprador) return { clienteId: "", clientesAtualizados: clientesAtuais };
+  const existente = clientesAtuais.find((c) => c.filialId === filialId && c.razaoSocial.trim().toLowerCase() === nomeComprador.trim().toLowerCase());
+  if (existente) return { clienteId: existente.id, clientesAtualizados: clientesAtuais };
+  const novo = { id: uid(), filialId, razaoSocial: nomeComprador, cpfCnpj: "", inscricaoEstadual: "", endereco: "", numero: "", bairro: "", cidade: "", uf: "", telefone1: "", telefone2: "", email1: "", email2: "", responsavel: "", anexos: [] };
+  return { clienteId: novo.id, clientesAtualizados: [...clientesAtuais, novo] };
+}
+
+/* Monta um registro de venda completo (com direito a emissão de NF-e) a partir
+   de um lançamento operacional simples — usado por Descarte e Esterco. */
+function montarVendaAutomatica({ filialId, data, produtoId, qtd, valorTotal, clienteId, origem }) {
+  const total = Number(valorTotal) || 0;
+  const quantidade = Number(qtd) || 0;
+  const precoUnit = quantidade > 0 ? total / quantidade : total;
+  const parcelas = gerarParcelas("boleto_30", total, data || todayISO());
+  return {
+    id: uid(), filialId, data: data || todayISO(), clienteId: clienteId || "", vendedorId: "",
+    itens: [{ produtoId, qtd: quantidade, precoUnit }],
+    total, comissaoValor: 0, gerenteComercialId: null, comissaoGerenteValor: 0,
+    condicaoPagamento: "boleto_30", centroCustoId: "", parcelas, nfe: null,
+    origem,
+  };
+}
+
 /* ---------------- Início / Dashboard ---------------- */
 
 function Inicio({ db, filialId }) {
@@ -3323,19 +3357,33 @@ function ProducaoAvicola({ db, update, filialId }) {
       />
 
       <CrudBlock
-        title="Descarte de lotes (venda de galinhas)" subtitle="Saída de aves vivas por venda/descarte — desconta do total de aves vivas do lote e gera conta a receber automaticamente." filialId={filialId}
+        title="Descarte de lotes (venda de galinhas)" subtitle="Saída de aves vivas por venda/descarte — desconta do total de aves vivas do lote e gera uma venda de verdade (com direito a emitir NF-e no módulo Vendas ou Fiscal)." filialId={filialId}
         items={descartes} onChange={(items) => {
           update((prev) => {
             const antigos = prev.registrosDescarte.filter((d) => d.filialId === filialId);
             const novos = items.filter((it) => !antigos.some((a) => a.id === it.id));
-            const contasNovas = novos.filter((it) => Number(it.valorVenda) > 0).map((it) => ({
-              id: uid(), filialId, tipo: "receber", descricao: `Venda de descarte — lote ${lotes.find((l) => l.id === it.loteId)?.codigo || it.loteId}`,
-              valor: Number(it.valorVenda), vencimento: it.data || todayISO(), centroCustoId: "", status: "pendente",
-            }));
+
+            let produtosNext = prev.produtos;
+            let clientesNext = prev.clientes;
+            const vendasNovas = [];
+
+            novos.filter((it) => Number(it.valorVenda) > 0 && Number(it.quantidade) > 0).forEach((it) => {
+              const { produto, produtosAtualizados } = encontrarOuCriarProdutoPorNome(produtosNext, filialId, "Galinha de Descarte", "un", "5102");
+              produtosNext = produtosAtualizados;
+              const { clienteId, clientesAtualizados } = encontrarOuCriarClientePorNome(clientesNext, filialId, it.comprador);
+              clientesNext = clientesAtualizados;
+              vendasNovas.push(montarVendaAutomatica({
+                filialId, data: it.data, produtoId: produto.id, qtd: it.quantidade, valorTotal: it.valorVenda, clienteId,
+                origem: `Descarte — lote ${lotes.find((l) => l.id === it.loteId)?.codigo || it.loteId}`,
+              }));
+            });
+
             return {
               ...prev,
               registrosDescarte: mergeByFilial(prev.registrosDescarte, items, filialId),
-              contasAvulsas: [...prev.contasAvulsas, ...contasNovas],
+              produtos: produtosNext,
+              clientes: clientesNext,
+              vendas: [...prev.vendas, ...vendasNovas],
             };
           });
         }}
@@ -3390,19 +3438,33 @@ function ProducaoAvicola({ db, update, filialId }) {
       />
 
       <CrudBlock
-        title="Esterco — armazenado e vendido" subtitle="Registre a produção (entrada no armazém) e as vendas (saída) — vendas geram conta a receber automaticamente, aparecendo no Financeiro e na DRE." filialId={filialId}
+        title="Esterco — armazenado e vendido" subtitle="Vendas geram uma venda de verdade, com direito a emitir NF-e (módulo Vendas ou Fiscal). Atenção: esterco/adubo orgânico costuma ter isenção de ICMS em vários estados — confirme o enquadramento e o CFOP corretos com seu contador." filialId={filialId}
         items={estercos} onChange={(items) => {
           update((prev) => {
             const antigos = prev.registrosEsterco.filter((e) => e.filialId === filialId);
             const novos = items.filter((it) => !antigos.some((a) => a.id === it.id));
-            const contasNovas = novos.filter((it) => it.tipo === "venda" && Number(it.valorVenda) > 0).map((it) => ({
-              id: uid(), filialId, tipo: "receber", descricao: `Venda de esterco${it.comprador ? " — " + it.comprador : ""}`,
-              valor: Number(it.valorVenda), vencimento: it.data || todayISO(), centroCustoId: "", status: "pendente",
-            }));
+
+            let produtosNext = prev.produtos;
+            let clientesNext = prev.clientes;
+            const vendasNovas = [];
+
+            novos.filter((it) => it.tipo === "venda" && Number(it.valorVenda) > 0 && Number(it.quantidadeTon) > 0).forEach((it) => {
+              const { produto, produtosAtualizados } = encontrarOuCriarProdutoPorNome(produtosNext, filialId, "Esterco / Adubo Orgânico", "ton", "5101");
+              produtosNext = produtosAtualizados;
+              const { clienteId, clientesAtualizados } = encontrarOuCriarClientePorNome(clientesNext, filialId, it.comprador);
+              clientesNext = clientesAtualizados;
+              vendasNovas.push(montarVendaAutomatica({
+                filialId, data: it.data, produtoId: produto.id, qtd: it.quantidadeTon, valorTotal: it.valorVenda, clienteId,
+                origem: "Venda de esterco",
+              }));
+            });
+
             return {
               ...prev,
               registrosEsterco: mergeByFilial(prev.registrosEsterco, items, filialId),
-              contasAvulsas: [...prev.contasAvulsas, ...contasNovas],
+              produtos: produtosNext,
+              clientes: clientesNext,
+              vendas: [...prev.vendas, ...vendasNovas],
             };
           });
         }}
