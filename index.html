@@ -519,6 +519,57 @@ async function hashPassword(texto) {
   return Array.from(new Uint8Array(buffer)).map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
+/* Cada célula do Google Sheets aguenta só ~50.000 caracteres — uma foto em
+   base64 estoura isso fácil (mesmo um arquivo de 1–2 MB vira ~40x maior em
+   texto). Por isso toda imagem é redimensionada e recomprimida no navegador
+   antes de virar base64, em vez de só limitar o tamanho do arquivo original.
+   PDFs não dá para recomprimir (não são imagem), então continuam com um
+   limite de tamanho bruto, mais apertado. */
+const LIMITE_CELULA_SHEETS = 45000; // margem de segurança abaixo do limite real do Sheets
+
+function comprimirImagem(file, maxDimensao = 480, qualidadeInicial = 0.65) {
+  return new Promise((resolve, reject) => {
+    if (!file.type.startsWith("image/")) {
+      if (file.size > 30 * 1024) {
+        reject(new Error("Esse arquivo não é imagem (não dá pra comprimir) e passa do limite de ~30 KB que cabe numa célula do Google Sheets. Use um arquivo menor."));
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = () => resolve({ nome: file.name, tipo: file.type, dataUrl: reader.result });
+      reader.onerror = () => reject(new Error("Não foi possível ler esse arquivo."));
+      reader.readAsDataURL(file);
+      return;
+    }
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      let { width, height } = img;
+      if (width > height && width > maxDimensao) { height = Math.round(height * (maxDimensao / width)); width = maxDimensao; }
+      else if (height >= width && height > maxDimensao) { width = Math.round(width * (maxDimensao / height)); height = maxDimensao; }
+      const canvas = document.createElement("canvas");
+      canvas.width = width; canvas.height = height;
+      canvas.getContext("2d").drawImage(img, 0, 0, width, height);
+      URL.revokeObjectURL(url);
+
+      let qualidade = qualidadeInicial;
+      let dataUrl = canvas.toDataURL("image/jpeg", qualidade);
+      let tentativas = 0;
+      while (dataUrl.length > LIMITE_CELULA_SHEETS && tentativas < 7) {
+        qualidade = Math.max(0.15, qualidade - 0.12);
+        dataUrl = canvas.toDataURL("image/jpeg", qualidade);
+        tentativas++;
+      }
+      if (dataUrl.length > LIMITE_CELULA_SHEETS) {
+        reject(new Error("Não consegui comprimir essa imagem o suficiente para caber numa célula da planilha. Tente uma foto mais simples ou com menos detalhe."));
+        return;
+      }
+      resolve({ nome: file.name.replace(/\.[^.]+$/, ".jpg"), tipo: "image/jpeg", dataUrl });
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("Não foi possível abrir essa imagem.")); };
+    img.src = url;
+  });
+}
+
 /* ---------------- small UI primitives ---------------- */
 
 function Field({ label, children }) {
@@ -868,11 +919,10 @@ function CrudBlock({ title, subtitle, fields, items, onChange, columns, filialId
                     onChange={(e) => {
                       const file = e.target.files[0];
                       if (!file) return;
-                      if (file.size > 1.5 * 1024 * 1024) { alert("Arquivo muito grande para este protótipo (limite 1,5 MB)."); e.target.value = ""; return; }
-                      const reader = new FileReader();
-                      reader.onload = () => setDraft((d) => ({ ...d, [f.key]: { nome: file.name, tipo: file.type, dataUrl: reader.result } }));
-                      reader.readAsDataURL(file);
                       e.target.value = "";
+                      comprimirImagem(file)
+                        .then((resultado) => setDraft((d) => ({ ...d, [f.key]: resultado })))
+                        .catch((err) => alert(err.message));
                     }}
                   />
                   {draft[f.key]?.dataUrl && <img src={draft[f.key].dataUrl} alt="" style={{ width: 40, height: 40, objectFit: "cover", borderRadius: 6, marginTop: 5, display: "block" }} />}
@@ -1971,11 +2021,10 @@ function CadastroPessoa({ title, subtitle, items, onChange, filialId }) {
   function anexarArquivo(e) {
     const file = e.target.files[0];
     if (!file) return;
-    if (file.size > 1.5 * 1024 * 1024) { alert("Arquivo muito grande para este protótipo (limite de 1,5 MB por arquivo). Use um arquivo menor."); e.target.value = ""; return; }
-    const reader = new FileReader();
-    reader.onload = () => setDraft((d) => ({ ...d, anexos: [...(d.anexos || []), { id: uid(), nome: file.name, tipo: file.type, dataUrl: reader.result }] }));
-    reader.readAsDataURL(file);
     e.target.value = "";
+    comprimirImagem(file)
+      .then((resultado) => setDraft((d) => ({ ...d, anexos: [...(d.anexos || []), { id: uid(), ...resultado }] })))
+      .catch((err) => alert(err.message));
   }
   function removerAnexo(anexoId) {
     setDraft((d) => ({ ...d, anexos: (d.anexos || []).filter((a) => a.id !== anexoId) }));
@@ -2955,14 +3004,13 @@ function CadastroMotoristas({ items, onChange, filialId }) {
   function lerArquivo(e, campo, multiplo) {
     const file = e.target.files[0];
     if (!file) return;
-    if (file.size > 1.5 * 1024 * 1024) { alert("Arquivo muito grande para este protótipo (limite 1,5 MB)."); e.target.value = ""; return; }
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (multiplo) setDraft((d) => ({ ...d, [campo]: [...(d[campo] || []), { id: uid(), nome: file.name, tipo: file.type, dataUrl: reader.result }] }));
-      else setDraft((d) => ({ ...d, [campo]: { nome: file.name, tipo: file.type, dataUrl: reader.result } }));
-    };
-    reader.readAsDataURL(file);
     e.target.value = "";
+    comprimirImagem(file)
+      .then((resultado) => {
+        if (multiplo) setDraft((d) => ({ ...d, [campo]: [...(d[campo] || []), { id: uid(), ...resultado }] }));
+        else setDraft((d) => ({ ...d, [campo]: resultado }));
+      })
+      .catch((err) => alert(err.message));
   }
   function removerAnexo(id) { setDraft((d) => ({ ...d, anexos: (d.anexos || []).filter((a) => a.id !== id) })); }
 
@@ -3043,11 +3091,10 @@ function ViagensEntrega({ db, update, filialId }) {
   function addFoto(e) {
     const file = e.target.files[0];
     if (!file) return;
-    if (file.size > 1.5 * 1024 * 1024) { alert("Foto muito grande (limite 1,5 MB)."); e.target.value = ""; return; }
-    const reader = new FileReader();
-    reader.onload = () => setFotos((f) => [...f, { id: uid(), nome: file.name, dataUrl: reader.result }]);
-    reader.readAsDataURL(file);
     e.target.value = "";
+    comprimirImagem(file)
+      .then((resultado) => setFotos((f) => [...f, { id: uid(), ...resultado }]))
+      .catch((err) => alert(err.message));
   }
   function removerFoto(id) { setFotos((f) => f.filter((x) => x.id !== id)); }
 
@@ -3327,14 +3374,13 @@ function CadastroFuncionario({ items, onChange, filialId }) {
   function lerArquivo(e, campo, multiplo) {
     const file = e.target.files[0];
     if (!file) return;
-    if (file.size > 1.5 * 1024 * 1024) { alert("Arquivo muito grande para este protótipo (limite 1,5 MB)."); e.target.value = ""; return; }
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (multiplo) setDraft((d) => ({ ...d, [campo]: [...(d[campo] || []), { id: uid(), nome: file.name, tipo: file.type, dataUrl: reader.result }] }));
-      else setDraft((d) => ({ ...d, [campo]: { nome: file.name, tipo: file.type, dataUrl: reader.result } }));
-    };
-    reader.readAsDataURL(file);
     e.target.value = "";
+    comprimirImagem(file)
+      .then((resultado) => {
+        if (multiplo) setDraft((d) => ({ ...d, [campo]: [...(d[campo] || []), { id: uid(), ...resultado }] }));
+        else setDraft((d) => ({ ...d, [campo]: resultado }));
+      })
+      .catch((err) => alert(err.message));
   }
   function removerAnexo(id) { setDraft((d) => ({ ...d, anexos: (d.anexos || []).filter((a) => a.id !== id) })); }
 
