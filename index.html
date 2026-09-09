@@ -129,6 +129,7 @@ const emptyDB = () => ({
   notificacoesLidas: [],
   viagensEntrega: [],
   registrosDescarte: [],
+  orcamentos: [],
 });
 
 const MODULES = [
@@ -149,6 +150,7 @@ const MODULES = [
   { key: "relatorio", label: "Relatório Gerencial", icon: "\u25C9" },
   { key: "producao", label: "Produção Avícola", icon: "\u2696" },
   { key: "sensores", label: "Sensores / IoT", icon: "\u2699" },
+  { key: "forcavendas", label: "Força de Vendas", icon: "\u2191" },
 ];
 
 /* -------- condições de pagamento & parcelamento -------- */
@@ -224,7 +226,7 @@ function gerarSpedFiscal(db, filialId, empresa) {
     add("C100", ["1", "0", "55", "00", (v.id || "").slice(0, 6).toUpperCase(), "1", fmt(v.data), fmt(v.data), Number(v.total || 0).toFixed(2), "0", "0.00", "0.00", "0.00", Number(v.total || 0).toFixed(2)]);
     (v.itens || []).forEach((it, idx) => {
       const p = produtos.find((x) => x.id === it.produtoId);
-      add("C170", [String(idx + 1), p ? p.id.slice(0, 8).toUpperCase() : "PROD", Number(it.qtd || 0).toFixed(2), (p?.unidade || "UN").toUpperCase(), (Number(it.qtd || 0) * Number(it.precoUnit || 0)).toFixed(2), p?.cfop || "5102", "0", "0.00"]);
+      add("C170", [String(idx + 1), p ? p.id.slice(0, 8).toUpperCase() : "PROD", Number(it.qtd || 0).toFixed(2), (p?.unidade || "UN").toUpperCase(), (Number(it.qtd || 0) * Number(it.precoUnit || 0)).toFixed(2), it.cfop || p?.cfop || "5102", "0", "0.00"]);
     });
   });
   closeBlock("C990", start);
@@ -779,7 +781,7 @@ function Danfe({ venda, empresa, filial, cliente, produtos }) {
                 <td style={{ border: "1px solid #111", padding: "3px 5px" }}>{p?.id?.slice(0, 6) || "—"}</td>
                 <td style={{ border: "1px solid #111", padding: "3px 5px" }}>{p?.nome || "—"}</td>
                 <td style={{ border: "1px solid #111", padding: "3px 5px" }}>—</td>
-                <td style={{ border: "1px solid #111", padding: "3px 5px" }}>{p?.cfop || "—"}</td>
+                <td style={{ border: "1px solid #111", padding: "3px 5px" }}>{it.cfop || p?.cfop || "—"}</td>
                 <td style={{ border: "1px solid #111", padding: "3px 5px" }}>{p?.unidade || "—"}</td>
                 <td style={{ border: "1px solid #111", padding: "3px 5px" }}>{it.qtd}</td>
                 <td style={{ border: "1px solid #111", padding: "3px 5px" }}>{brl(it.precoUnit)}</td>
@@ -839,6 +841,24 @@ function CrudBlock({ title, subtitle, fields, items, onChange, columns, filialId
                   value={draft[f.key] || ""}
                                     onChange={(e) => setDraft({ ...draft, [f.key]: e.target.value })}
                 />
+              ) : f.type === "file" ? (
+                <div>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    style={{ fontSize: 12 }}
+                    onChange={(e) => {
+                      const file = e.target.files[0];
+                      if (!file) return;
+                      if (file.size > 1.5 * 1024 * 1024) { alert("Arquivo muito grande para este protótipo (limite 1,5 MB)."); e.target.value = ""; return; }
+                      const reader = new FileReader();
+                      reader.onload = () => setDraft((d) => ({ ...d, [f.key]: { nome: file.name, tipo: file.type, dataUrl: reader.result } }));
+                      reader.readAsDataURL(file);
+                      e.target.value = "";
+                    }}
+                  />
+                  {draft[f.key]?.dataUrl && <img src={draft[f.key].dataUrl} alt="" style={{ width: 40, height: 40, objectFit: "cover", borderRadius: 6, marginTop: 5, display: "block" }} />}
+                </div>
               ) : (
                 <TextInput
                   type={f.type || "text"}
@@ -1138,7 +1158,7 @@ function ConexaoSetup({ onConectado }) {
 
 function Onboarding({ onCreate }) {
   const isMobile = useIsMobile();
-  const [form, setForm] = useState({ nome: "", cnpj: "", endereco: "", telefone: "", responsavel: "", adminNome: "", adminLogin: "", adminSenha: "" });
+  const [form, setForm] = useState({ nome: "", cnpj: "", endereco: "", uf: "", telefone: "", responsavel: "", tipoEmpresa: "produtor", adminNome: "", adminLogin: "", adminSenha: "" });
   const [erro, setErro] = useState("");
   const [enviando, setEnviando] = useState(false);
 
@@ -1164,7 +1184,8 @@ function Onboarding({ onCreate }) {
           endereco: form.endereco,
           telefone: form.telefone,
           responsavel: form.responsavel,
-          filiais: [{ id: filialId, nome: "Matriz", endereco: form.endereco }],
+          tipoEmpresa: form.tipoEmpresa,
+          filiais: [{ id: filialId, nome: "Matriz", endereco: form.endereco, uf: form.uf }],
         }],
         usuarios: [{
           id: usuarioId,
@@ -1197,8 +1218,17 @@ function Onboarding({ onCreate }) {
           <Field label="Nome da empresa"><TextInput value={form.nome} onChange={(e) => setForm({ ...form, nome: e.target.value })} /></Field>
           <Field label="CNPJ"><TextInput value={form.cnpj} onChange={(e) => setForm({ ...form, cnpj: e.target.value })} /></Field>
           <Field label="Endereço"><TextInput value={form.endereco} onChange={(e) => setForm({ ...form, endereco: e.target.value })} /></Field>
+          <Field label="UF"><TextInput maxLength={2} value={form.uf} onChange={(e) => setForm({ ...form, uf: e.target.value.toUpperCase() })} /></Field>
           <Field label="Telefone"><TextInput value={form.telefone} onChange={(e) => setForm({ ...form, telefone: e.target.value })} /></Field>
-          <Field label="Responsável"><TextInput value={form.responsavel} onChange={(e) => setForm({ ...form, responsavel: e.target.value })} style={{ gridColumn: "1 / -1" }} /></Field>
+          <Field label="Responsável"><TextInput value={form.responsavel} onChange={(e) => setForm({ ...form, responsavel: e.target.value })} /></Field>
+          <Field label="Tipo de empresa (define o CFOP automaticamente)">
+            <Select
+              options={[{ value: "produtor", label: "Produtor (produção própria — granja)" }, { value: "revenda", label: "Revenda (comércio/distribuição)" }]}
+              value={form.tipoEmpresa}
+              onChange={(e) => setForm({ ...form, tipoEmpresa: e.target.value })}
+              style={{ gridColumn: "1 / -1" }}
+            />
+          </Field>
         </div>
         <div style={{ height: 1, background: BORDER, margin: "4px 0" }} />
         <div style={{ fontSize: 13, fontWeight: 700, color: GREEN }}>Usuário administrador</div>
@@ -1357,17 +1387,23 @@ function ModuleView({ activeModule, db, update, conn, filialId, empresaId, usuar
             { key: "unidade", label: "Unidade", type: "select", options: [{ value: "dz", label: "Dúzia" }, { value: "cx", label: "Caixa" }, { value: "un", label: "Unidade" }, { value: "kg", label: "Kg" }, { value: "ton", label: "Tonelada" }, { value: "l", label: "Litro" }, { value: "sc", label: "Saco" }] },
             { key: "custoUnit", label: "Custo unitário (R$)", type: "number" },
             { key: "precoVenda", label: "Preço de venda (R$)", type: "number" },
-            { key: "lote", label: "Lote" },
+            { key: "lote", label: "Lote produzido" },
+            { key: "dataValidade", label: "Validade do lote", type: "date" },
             { key: "cfop", label: "CFOP" },
+            { key: "residuo", label: "É resíduo/subproduto?", type: "select", options: [{ value: "false", label: "Não" }, { value: "true", label: "Sim (ex.: esterco)" }] },
+            { key: "foto", label: "Foto (mostrada ao cliente na Força de Vendas)", type: "file" },
           ]}
           columns={[
+            { key: "foto", label: "", render: (r) => (r.foto?.dataUrl ? <img src={r.foto.dataUrl} alt="" style={{ width: 32, height: 32, borderRadius: 6, objectFit: "cover" }} /> : "—") },
             { key: "nome", label: "Produto" },
             { key: "tipo", label: "Tipo" },
             { key: "unidade", label: "Unid." },
             { key: "custoUnit", label: "Custo", render: (r) => brl(r.custoUnit) },
             { key: "precoVenda", label: "Preço", render: (r) => brl(r.precoVenda) },
             { key: "lote", label: "Lote" },
+            { key: "dataValidade", label: "Validade", render: (r) => r.dataValidade || "—" },
             { key: "cfop", label: "CFOP" },
+            { key: "residuo", label: "Resíduo", render: (r) => (r.residuo === true || r.residuo === "true" ? "Sim" : "Não") },
           ]}
         />
       );
@@ -1406,6 +1442,8 @@ function ModuleView({ activeModule, db, update, conn, filialId, empresaId, usuar
       return <ProducaoAvicola db={db} update={update} filialId={filialId} />;
     case "sensores":
       return <SensoresIoT conn={conn} db={db} filialId={filialId} />;
+    case "forcavendas":
+      return <ForcaDeVendas db={db} update={update} filialId={filialId} />;
     default:
       return null;
   }
@@ -1418,10 +1456,10 @@ function mergeByFilial(all, editedSubset, filialId) {
 
 /* Localiza um produto pelo nome (cria se não existir) — usado para gerar vendas
    automaticamente a partir de registros operacionais (descarte, esterco). */
-function encontrarOuCriarProdutoPorNome(produtosAtuais, filialId, nome, unidade, cfop) {
+function encontrarOuCriarProdutoPorNome(produtosAtuais, filialId, nome, unidade, cfop, residuo) {
   const existente = produtosAtuais.find((p) => p.filialId === filialId && p.nome.trim().toLowerCase() === nome.trim().toLowerCase());
   if (existente) return { produto: existente, produtosAtualizados: produtosAtuais };
-  const novo = { id: uid(), filialId, nome, tipo: "outro", unidade, custoUnit: 0, precoVenda: 0, lote: "", cfop };
+  const novo = { id: uid(), filialId, nome, tipo: "outro", unidade, custoUnit: 0, precoVenda: 0, lote: "", cfop, residuo: residuo ? "true" : "false" };
   return { produto: novo, produtosAtualizados: [...produtosAtuais, novo] };
 }
 
@@ -1434,16 +1472,74 @@ function encontrarOuCriarClientePorNome(clientesAtuais, filialId, nomeComprador)
   return { clienteId: novo.id, clientesAtualizados: [...clientesAtuais, novo] };
 }
 
+/* -------- Pix — geração do payload "Copia e Cola" (padrão EMV/BR Code do Bacen) --------
+   Implementado localmente (sem depender de serviço externo para o cálculo) — só a
+   renderização da imagem do QR Code usa um serviço público gratuito. */
+function crc16ccitt(str) {
+  let crc = 0xFFFF;
+  for (let i = 0; i < str.length; i++) {
+    crc ^= str.charCodeAt(i) << 8;
+    for (let j = 0; j < 8; j++) {
+      crc = (crc & 0x8000) ? ((crc << 1) ^ 0x1021) & 0xFFFF : (crc << 1) & 0xFFFF;
+    }
+  }
+  return crc.toString(16).toUpperCase().padStart(4, "0");
+}
+function tlvPix(id, value) {
+  const len = String(value.length).padStart(2, "0");
+  return `${id}${len}${value}`;
+}
+function semAcentos(s) {
+  return String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+}
+function gerarPayloadPix({ chave, valor, nomeRecebedor, cidade, txid }) {
+  if (!chave) return null;
+  const gui = tlvPix("00", "br.gov.bcb.pix");
+  const chaveTlv = tlvPix("01", chave.trim());
+  const merchantAccountInfo = tlvPix("26", gui + chaveTlv);
+  const mcc = tlvPix("52", "0000");
+  const moeda = tlvPix("53", "986");
+  const valorTlv = valor ? tlvPix("54", Number(valor).toFixed(2)) : "";
+  const pais = tlvPix("58", "BR");
+  const nome = tlvPix("59", semAcentos(nomeRecebedor || "AVISOFT").toUpperCase().slice(0, 25) || "AVISOFT");
+  const cidadeTlv = tlvPix("60", semAcentos(cidade || "BRASIL").toUpperCase().slice(0, 15) || "BRASIL");
+  const txidLimpo = String(txid || "***").replace(/[^A-Za-z0-9]/g, "").slice(0, 25) || "***";
+  const addData = tlvPix("62", tlvPix("05", txidLimpo));
+  const payloadFormat = tlvPix("00", "01");
+  const semCrc = payloadFormat + merchantAccountInfo + mcc + moeda + valorTlv + pais + nome + cidadeTlv + addData + "6304";
+  return semCrc + crc16ccitt(semCrc);
+}
+function urlQrCode(conteudo, tamanho = 220) {
+  return `https://api.qrserver.com/v1/create-qr-code/?size=${tamanho}x${tamanho}&data=${encodeURIComponent(conteudo)}`;
+}
+
+/* Determina o CFOP de uma venda com base no tipo de empresa (produtor x revenda)
+   e se a operação é estadual ou interestadual (UF da filial x UF do cliente).
+   Regra padrão:
+     Produtor + estadual      -> 5101
+     Produtor + interestadual -> 6101
+     Revenda  + estadual      -> 5102
+     Revenda  + interestadual -> 6102
+   Exceção — produto marcado como "resíduo" (ex.: esterco/cama de aviário):
+   segue o entendimento de pareceres estaduais (ex.: GO) que tratam a venda
+   de resíduo/subproduto como 5102/6102, mesmo sendo produção própria. */
+function determinarCFOP(tipoEmpresa, ufOrigem, ufDestino, isResiduo) {
+  const interestadual = !!ufOrigem && !!ufDestino && ufOrigem.trim().toUpperCase() !== ufDestino.trim().toUpperCase();
+  const usarPadraoRevenda = isResiduo || tipoEmpresa === "revenda";
+  if (usarPadraoRevenda) return interestadual ? "6102" : "5102";
+  return interestadual ? "6101" : "5101"; // produtor, produto não é resíduo
+}
+
 /* Monta um registro de venda completo (com direito a emissão de NF-e) a partir
    de um lançamento operacional simples — usado por Descarte e Esterco. */
-function montarVendaAutomatica({ filialId, data, produtoId, qtd, valorTotal, clienteId, origem }) {
+function montarVendaAutomatica({ filialId, data, produtoId, qtd, valorTotal, clienteId, origem, cfop }) {
   const total = Number(valorTotal) || 0;
   const quantidade = Number(qtd) || 0;
   const precoUnit = quantidade > 0 ? total / quantidade : total;
   const parcelas = gerarParcelas("boleto_30", total, data || todayISO());
   return {
     id: uid(), filialId, data: data || todayISO(), clienteId: clienteId || "", vendedorId: "",
-    itens: [{ produtoId, qtd: quantidade, precoUnit }],
+    itens: [{ produtoId, qtd: quantidade, precoUnit, cfop }],
     total, comissaoValor: 0, gerenteComercialId: null, comissaoGerenteValor: 0,
     condicaoPagamento: "boleto_30", centroCustoId: "", parcelas, nfe: null,
     origem,
@@ -1633,7 +1729,7 @@ function CadastroEmpresa({ db, update, empresaId }) {
   const isMobile = useIsMobile();
   const empresa = db.empresas.find((e) => e.id === empresaId);
   const [form, setForm] = useState(empresa);
-  const [novaFilial, setNovaFilial] = useState({ nome: "", endereco: "" });
+  const [novaFilial, setNovaFilial] = useState({ nome: "", endereco: "", cidade: "", uf: "" });
 
   function salvar(e) {
     e.preventDefault();
@@ -1647,7 +1743,7 @@ function CadastroEmpresa({ db, update, empresaId }) {
       ...prev,
       empresas: prev.empresas.map((emp) => emp.id === empresaId ? { ...emp, filiais: [...emp.filiais, { id: uid(), ...novaFilial }] } : emp),
     }));
-    setNovaFilial({ nome: "", endereco: "" });
+    setNovaFilial({ nome: "", endereco: "", cidade: "", uf: "" });
   }
 
   function removeFilial(filialId) {
@@ -1667,18 +1763,28 @@ function CadastroEmpresa({ db, update, empresaId }) {
           <Field label="Endereço"><TextInput value={form.endereco} onChange={(e) => setForm({ ...form, endereco: e.target.value })} /></Field>
           <Field label="Telefone"><TextInput value={form.telefone} onChange={(e) => setForm({ ...form, telefone: e.target.value })} /></Field>
           <Field label="Responsável"><TextInput value={form.responsavel} onChange={(e) => setForm({ ...form, responsavel: e.target.value })} /></Field>
+          <Field label="Tipo de empresa (define o CFOP automaticamente)">
+            <Select
+              options={[{ value: "produtor", label: "Produtor (produção própria — granja)" }, { value: "revenda", label: "Revenda (comércio/distribuição de terceiros)" }]}
+              value={form.tipoEmpresa || "produtor"}
+              onChange={(e) => setForm({ ...form, tipoEmpresa: e.target.value })}
+            />
+          </Field>
+          <Field label="Chave Pix (para QR Code na Força de Vendas)"><TextInput value={form.chavePix || ""} onChange={(e) => setForm({ ...form, chavePix: e.target.value })} /></Field>
           <div style={{ alignSelf: "end" }}><Button type="submit">Salvar</Button></div>
         </form>
       </Card>
 
-      <Card title="Filiais" subtitle="Cada filial opera com seus próprios lançamentos — vendas, estoque, financeiro e contabilidade ficam separados por filial.">
-        <form onSubmit={addFilial} style={{ display: "flex", gap: 12, marginBottom: 14, alignItems: "end" }}>
+      <Card title="Filiais" subtitle="Cada filial opera com seus próprios lançamentos — vendas, estoque, financeiro e contabilidade ficam separados por filial. O UF de cada filial é usado para decidir se uma venda é estadual ou interestadual (CFOP), e a cidade aparece no QR Code Pix.">
+        <form onSubmit={addFilial} style={{ display: "flex", gap: 12, marginBottom: 14, alignItems: "end", flexWrap: "wrap" }}>
           <Field label="Nome da filial"><TextInput value={novaFilial.nome} onChange={(e) => setNovaFilial({ ...novaFilial, nome: e.target.value })} /></Field>
           <Field label="Endereço"><TextInput value={novaFilial.endereco} onChange={(e) => setNovaFilial({ ...novaFilial, endereco: e.target.value })} /></Field>
+          <Field label="Cidade"><TextInput value={novaFilial.cidade} onChange={(e) => setNovaFilial({ ...novaFilial, cidade: e.target.value })} /></Field>
+          <Field label="UF"><TextInput maxLength={2} value={novaFilial.uf} onChange={(e) => setNovaFilial({ ...novaFilial, uf: e.target.value.toUpperCase() })} style={{ width: 70 }} /></Field>
           <Button type="submit">Adicionar filial</Button>
         </form>
         <Table
-          columns={[{ key: "nome", label: "Filial" }, { key: "endereco", label: "Endereço" }]}
+          columns={[{ key: "nome", label: "Filial" }, { key: "endereco", label: "Endereço" }, { key: "cidade", label: "Cidade" }, { key: "uf", label: "UF" }]}
           rows={empresa.filiais}
           onDelete={(f) => removeFilial(f.id)}
         />
@@ -1881,6 +1987,8 @@ function Vendas({ db, update, filialId }) {
   const [danfeVenda, setDanfeVenda] = useState(null);
 
   const [form, setForm] = useState({ data: todayISO(), clienteId: "", vendedorId: "", produtoId: "", qtd: "", precoUnit: "", condicaoPagamento: "vista_pix", centroCustoId: "" });
+  const clienteSelecionado = clientes.find((c) => c.id === form.clienteId);
+  const cfopPreview = determinarCFOP(empresa?.tipoEmpresa, filial?.uf, clienteSelecionado?.uf);
 
   function precoAoEscolher(produtoId) {
     const p = produtos.find((x) => x.id === produtoId);
@@ -1903,9 +2011,10 @@ function Vendas({ db, update, filialId }) {
     }
     const condicao = form.condicaoPagamento || "vista_pix";
     const parcelas = gerarParcelas(condicao, total, form.data);
+    const cfop = determinarCFOP(empresa?.tipoEmpresa, filial?.uf, clienteSelecionado?.uf);
     const venda = {
       id: uid(), filialId, data: form.data, clienteId: form.clienteId, vendedorId: form.vendedorId,
-      itens: [{ produtoId: form.produtoId, qtd: Number(form.qtd), precoUnit: Number(form.precoUnit) }],
+      itens: [{ produtoId: form.produtoId, qtd: Number(form.qtd), precoUnit: Number(form.precoUnit), cfop }],
       total, comissaoValor, gerenteComercialId, comissaoGerenteValor,
       condicaoPagamento: condicao, centroCustoId: form.centroCustoId || "",
       parcelas, nfe: null,
@@ -1954,7 +2063,7 @@ function Vendas({ db, update, filialId }) {
         onChange={(items) => update((prev) => ({ ...prev, clientes: mergeByFilial(prev.clientes, items, filialId) }))} />
 
       <CrudBlock
-        title="Vendedores & Comissão" subtitle="Cada vendedor pode ter um gerente comercial, que recebe uma comissão adicional sobre as vendas dele."
+        title="Vendedores & Comissão" subtitle="Cada vendedor pode ter um gerente comercial, que recebe uma comissão adicional sobre as vendas dele. Vendedores inativos não aparecem para escolher em vendas nem no relatório de comissões."
         filialId={filialId} items={vendedores} onChange={(items) => update((prev) => ({ ...prev, vendedores: mergeByFilial(prev.vendedores, items, filialId) }))}
         fields={[
           { key: "nomeCompleto", label: "Nome completo", required: true },
@@ -1963,25 +2072,33 @@ function Vendas({ db, update, filialId }) {
           { key: "percentualComissao", label: "Comissão (%)", type: "number" },
           { key: "gerenteComercialId", label: "Gerente comercial", type: "select", options: vendedores.map((v) => ({ value: v.id, label: v.apelido || v.nomeCompleto })) },
           { key: "percentualComissaoGerente", label: "Comissão do gerente (%)", type: "number" },
+          { key: "ativo", label: "Situação", type: "select", options: [{ value: "true", label: "Ativo" }, { value: "false", label: "Inativo" }] },
         ]}
         columns={[
           { key: "nomeCompleto", label: "Nome" },
           { key: "apelido", label: "Apelido" },
           { key: "percentualComissao", label: "Comissão", render: (r) => `${r.percentualComissao || 0}%` },
           { key: "gerenteComercialId", label: "Gerente", render: (r) => { const g = vendedores.find((x) => x.id === r.gerenteComercialId); return g ? `${g.apelido || g.nomeCompleto} (${r.percentualComissaoGerente || 0}%)` : "—"; } },
+          { key: "ativo", label: "Situação", render: (r) => (r.ativo === false || r.ativo === "false" ? "Inativo" : "Ativo") },
         ]}
       />
 
-      <Card title="Lançar venda" subtitle="Gera parcelas conforme a condição de pagamento, alimenta contas a receber, comissões e a DRE.">
+      <Card title="Lançar venda" subtitle="Gera parcelas conforme a condição de pagamento, alimenta contas a receber, comissões e a DRE. O CFOP é calculado automaticamente pelo tipo da empresa (Empresa & Filiais) e pelo UF do cliente.">
         <form onSubmit={lancarVenda} style={{ display: "grid", gridTemplateColumns: gridCols(isMobile, "repeat(4, 1fr)"), gap: 10, alignItems: "end" }}>
           <Field label="Data"><TextInput type="date" value={form.data} onChange={(e) => setForm({ ...form, data: e.target.value })} /></Field>
           <Field label="Cliente"><Select options={clientes.map((c) => ({ value: c.id, label: c.razaoSocial }))} value={form.clienteId} onChange={(e) => setForm({ ...form, clienteId: e.target.value })} /></Field>
-          <Field label="Vendedor"><Select options={vendedores.map((v) => ({ value: v.id, label: v.apelido || v.nomeCompleto }))} value={form.vendedorId} onChange={(e) => setForm({ ...form, vendedorId: e.target.value })} /></Field>
+          <Field label="Vendedor"><Select options={vendedores.filter((v) => v.ativo !== false && v.ativo !== "false").map((v) => ({ value: v.id, label: v.apelido || v.nomeCompleto }))} value={form.vendedorId} onChange={(e) => setForm({ ...form, vendedorId: e.target.value })} /></Field>
           <Field label="Produto"><Select options={produtos.map((p) => ({ value: p.id, label: p.nome }))} value={form.produtoId} onChange={(e) => precoAoEscolher(e.target.value)} /></Field>
           <Field label="Qtd"><TextInput type="number" step="0.01" value={form.qtd} onChange={(e) => setForm({ ...form, qtd: e.target.value })} /></Field>
           <Field label="Preço unit. (R$)"><TextInput type="number" step="0.01" value={form.precoUnit} onChange={(e) => setForm({ ...form, precoUnit: e.target.value })} /></Field>
           <Field label="Condição de pagamento"><Select options={CONDICOES_PAGAMENTO} value={form.condicaoPagamento} onChange={(e) => setForm({ ...form, condicaoPagamento: e.target.value })} /></Field>
           <Field label="Centro de custo"><Select options={centrosCusto.map((c) => ({ value: c.id, label: c.nome }))} value={form.centroCustoId} onChange={(e) => setForm({ ...form, centroCustoId: e.target.value })} /></Field>
+          <div>
+            <div style={{ fontSize: 12.5, fontWeight: 700, color: MUTED, marginBottom: 6 }}>CFOP (automático)</div>
+            <div style={{ background: BG, border: `1px solid ${BORDER}`, borderRadius: 8, padding: "8px 10px", fontSize: 13.5, fontWeight: 800, color: GREEN }}>
+              {cfopPreview} {cfopPreview.startsWith("6") ? "— interestadual" : "— estadual"}
+            </div>
+          </div>
           <div style={{ gridColumn: "1 / -1" }}><Button type="submit">Lançar venda</Button></div>
         </form>
       </Card>
@@ -1993,6 +2110,7 @@ function Vendas({ db, update, filialId }) {
             { key: "clienteId", label: "Cliente", render: (r) => nomeCliente(r.clienteId) },
             { key: "vendedorId", label: "Vendedor", render: (r) => nomeVendedor(r.vendedorId) },
             { key: "produto", label: "Produto", render: (r) => nomeProduto(r.itens[0]?.produtoId) },
+            { key: "cfop", label: "CFOP", render: (r) => r.itens[0]?.cfop || produtos.find((p) => p.id === r.itens[0]?.produtoId)?.cfop || "—" },
             { key: "total", label: "Total", render: (r) => brl(r.total) },
             { key: "comissaoValor", label: "Comissão", render: (r) => <span>{brl(r.comissaoValor)}{r.comissaoGerenteValor > 0 && <><br /><span style={{ fontSize: 10.5, color: MUTED }}>+ gerente: {brl(r.comissaoGerenteValor)}</span></>}</span> },
             { key: "condicaoPagamento", label: "Condição", render: (r) => CONDICOES_PAGAMENTO.find((c) => c.value === r.condicaoPagamento)?.label || "—" },
@@ -3199,7 +3317,7 @@ function RelatorioGerencial({ db, update, filialId }) {
     return { mes, entradas, saidas, saldo, acumulado };
   });
 
-  const comissoesPorVendedor = vendedores.map((vend) => {
+  const comissoesPorVendedor = vendedores.filter((v) => v.ativo !== false && v.ativo !== "false").map((vend) => {
     const proprias = vendasAll.filter((v) => v.vendedorId === vend.id && dentroPeriodo(v.data));
     const comoGerente = vendasAll.filter((v) => v.gerenteComercialId === vend.id && dentroPeriodo(v.data));
     const comissaoPropria = proprias.reduce((s, v) => s + Number(v.comissaoValor || 0), 0);
@@ -3303,6 +3421,8 @@ function ProducaoAvicola({ db, update, filialId }) {
   const descartes = db.registrosDescarte.filter((d) => d.filialId === filialId);
   const producoesRacao = db.producoesRacao.filter((p) => p.filialId === filialId);
   const equipeManejo = db.equipeManejo.filter((m) => m.filialId === filialId);
+  const empresaAtual = db.empresas.find((e) => e.filiais.some((f) => f.id === filialId));
+  const filialAtual = empresaAtual?.filiais.find((f) => f.id === filialId);
   const [tempoCriaRecria, setTempoCriaRecria] = useState(120);
 
   const mortesDoLote = (loteId) => mortalidades.filter((m) => m.loteId === loteId).reduce((s, m) => s + Number(m.avesMortas || 0), 0);
@@ -3431,8 +3551,10 @@ function ProducaoAvicola({ db, update, filialId }) {
               produtosNext = produtosAtualizados;
               const { clienteId, clientesAtualizados } = encontrarOuCriarClientePorNome(clientesNext, filialId, it.comprador);
               clientesNext = clientesAtualizados;
+              const clienteVenda = clientesAtualizados.find((c) => c.id === clienteId);
+              const cfop = determinarCFOP(empresaAtual?.tipoEmpresa, filialAtual?.uf, clienteVenda?.uf);
               vendasNovas.push(montarVendaAutomatica({
-                filialId, data: it.data, produtoId: produto.id, qtd: it.quantidade, valorTotal: it.valorVenda, clienteId,
+                filialId, data: it.data, produtoId: produto.id, qtd: it.quantidade, valorTotal: it.valorVenda, clienteId, cfop,
                 origem: `Descarte — lote ${lotes.find((l) => l.id === it.loteId)?.codigo || it.loteId}`,
               }));
             });
@@ -3497,7 +3619,7 @@ function ProducaoAvicola({ db, update, filialId }) {
       />
 
       <CrudBlock
-        title="Esterco — armazenado e vendido" subtitle="Vendas geram uma venda de verdade, com direito a emitir NF-e (módulo Vendas ou Fiscal). Atenção: esterco/adubo orgânico costuma ter isenção de ICMS em vários estados — confirme o enquadramento e o CFOP corretos com seu contador." filialId={filialId}
+        title="Esterco — armazenado e vendido" subtitle="Vendas geram uma venda de verdade, com direito a emitir NF-e. CFOP calculado automaticamente pela regra de resíduo/subproduto (cadastro de Produtos) — ou informe manualmente abaixo se seu contador orientar um código diferente." filialId={filialId}
         items={estercos} onChange={(items) => {
           update((prev) => {
             const antigos = prev.registrosEsterco.filter((e) => e.filialId === filialId);
@@ -3508,12 +3630,15 @@ function ProducaoAvicola({ db, update, filialId }) {
             const vendasNovas = [];
 
             novos.filter((it) => it.tipo === "venda" && Number(it.valorVenda) > 0 && Number(it.quantidadeTon) > 0).forEach((it) => {
-              const { produto, produtosAtualizados } = encontrarOuCriarProdutoPorNome(produtosNext, filialId, "Esterco / Adubo Orgânico", "ton", "5101");
+              const { produto, produtosAtualizados } = encontrarOuCriarProdutoPorNome(produtosNext, filialId, "Esterco / Adubo Orgânico", "ton", "5102", true);
               produtosNext = produtosAtualizados;
               const { clienteId, clientesAtualizados } = encontrarOuCriarClientePorNome(clientesNext, filialId, it.comprador);
               clientesNext = clientesAtualizados;
+              const clienteVenda = clientesAtualizados.find((c) => c.id === clienteId);
+              const cfopAuto = determinarCFOP(empresaAtual?.tipoEmpresa, filialAtual?.uf, clienteVenda?.uf, ehSim(produto.residuo));
+              const cfop = it.cfopManual || cfopAuto;
               vendasNovas.push(montarVendaAutomatica({
-                filialId, data: it.data, produtoId: produto.id, qtd: it.quantidadeTon, valorTotal: it.valorVenda, clienteId,
+                filialId, data: it.data, produtoId: produto.id, qtd: it.quantidadeTon, valorTotal: it.valorVenda, clienteId, cfop,
                 origem: "Venda de esterco",
               }));
             });
@@ -3533,6 +3658,7 @@ function ProducaoAvicola({ db, update, filialId }) {
           { key: "quantidadeTon", label: "Quantidade (ton)", type: "number" },
           { key: "valorVenda", label: "Valor da venda (R$)", type: "number" },
           { key: "comprador", label: "Comprador" },
+          { key: "cfopManual", label: "CFOP manual (opcional — deixe em branco p/ automático)" },
         ]}
         columns={[
           { key: "data", label: "Data" },
@@ -3540,6 +3666,7 @@ function ProducaoAvicola({ db, update, filialId }) {
           { key: "quantidadeTon", label: "Qtd. (ton)", render: (r) => Number(r.quantidadeTon || 0).toFixed(1) },
           { key: "valorVenda", label: "Valor", render: (r) => (r.tipo === "venda" ? brl(r.valorVenda) : "—") },
           { key: "comprador", label: "Comprador" },
+          { key: "cfopManual", label: "CFOP", render: (r) => (r.tipo === "venda" ? (r.cfopManual || "automático") : "—") },
         ]}
       />
     </div>
@@ -3599,6 +3726,285 @@ function SensoresIoT({ conn, db, filialId }) {
           emptyText={leituras === null ? "Carregando…" : "Nenhuma leitura recebida ainda — conecte um dispositivo usando o formato acima."}
         />
       </Card>
+    </div>
+  );
+}
+
+/* ---------------- Força de Vendas (tela mobile) ---------------- */
+
+function ForcaDeVendas({ db, update, filialId }) {
+  const produtos = db.produtos.filter((p) => p.filialId === filialId);
+  const clientes = db.clientes.filter((c) => c.filialId === filialId);
+  const vendedoresAtivos = db.vendedores.filter((v) => v.filialId === filialId && v.ativo !== false && v.ativo !== "false");
+  const empresa = db.empresas.find((e) => e.filiais.some((f) => f.id === filialId));
+  const filial = empresa?.filiais.find((f) => f.id === filialId);
+
+  const [etapa, setEtapa] = useState("cliente"); // cliente | produtos | finalizar | concluido
+  const [vendedorId, setVendedorId] = useState(vendedoresAtivos[0]?.id || "");
+  const [buscaCliente, setBuscaCliente] = useState("");
+  const [clienteSelecionadoId, setClienteSelecionadoId] = useState("");
+  const [novoCliente, setNovoCliente] = useState({ razaoSocial: "", telefone1: "", cidade: "", uf: "" });
+  const [carrinho, setCarrinho] = useState([]); // [{produtoId, qtd, precoUnit}]
+  const [tipoDocumento, setTipoDocumento] = useState("venda"); // orcamento | venda
+  const [condicaoPagamento, setCondicaoPagamento] = useState("vista_pix");
+  const [resultado, setResultado] = useState(null);
+
+  const clienteObj = clientes.find((c) => c.id === clienteSelecionadoId);
+  const clientesFiltrados = buscaCliente
+    ? clientes.filter((c) => c.razaoSocial.toLowerCase().includes(buscaCliente.toLowerCase()))
+    : clientes.slice(0, 8);
+
+  function addAoCarrinho(produto) {
+    setCarrinho((c) => {
+      const existente = c.find((it) => it.produtoId === produto.id);
+      if (existente) return c.map((it) => (it.produtoId === produto.id ? { ...it, qtd: it.qtd + 1 } : it));
+      return [...c, { produtoId: produto.id, qtd: 1, precoUnit: Number(produto.precoVenda) || 0 }];
+    });
+  }
+  function alterarQtd(produtoId, delta) {
+    setCarrinho((c) => c.map((it) => (it.produtoId === produtoId ? { ...it, qtd: Math.max(0, it.qtd + delta) } : it)).filter((it) => it.qtd > 0));
+  }
+  const totalCarrinho = carrinho.reduce((s, it) => s + it.qtd * it.precoUnit, 0);
+  const qtdItensCarrinho = carrinho.reduce((s, it) => s + it.qtd, 0);
+
+  function reiniciar() {
+    setEtapa("cliente"); setClienteSelecionadoId(""); setBuscaCliente("");
+    setNovoCliente({ razaoSocial: "", telefone1: "", cidade: "", uf: "" });
+    setCarrinho([]); setTipoDocumento("venda"); setCondicaoPagamento("vista_pix"); setResultado(null);
+  }
+
+  function concluirPedido() {
+    if (!carrinho.length) { alert("Adicione ao menos um produto ao pedido."); return; }
+    if (!clienteSelecionadoId && !novoCliente.razaoSocial) { alert("Informe o cliente."); return; }
+    if (!vendedorId) { alert("Selecione o vendedor."); return; }
+
+    let clienteId = clienteSelecionadoId;
+    let novoClienteRegistro = null;
+    let cliente = clienteObj;
+    if (!clienteId) {
+      novoClienteRegistro = {
+        id: uid(), filialId, razaoSocial: novoCliente.razaoSocial, cpfCnpj: "", inscricaoEstadual: "",
+        endereco: "", numero: "", bairro: "", cidade: novoCliente.cidade, uf: novoCliente.uf,
+        telefone1: novoCliente.telefone1, telefone2: "", email1: "", email2: "", responsavel: "", anexos: [],
+      };
+      clienteId = novoClienteRegistro.id;
+      cliente = novoClienteRegistro;
+    }
+
+    const total = totalCarrinho;
+
+    if (tipoDocumento === "orcamento") {
+      const orc = {
+        id: uid(), filialId, data: todayISO(), clienteId, vendedorId,
+        itens: carrinho.map((it) => ({ ...it })), total, condicaoPagamento, status: "aberto",
+      };
+      update((prev) => ({
+        ...prev,
+        clientes: novoClienteRegistro ? [...prev.clientes, novoClienteRegistro] : prev.clientes,
+        orcamentos: [...prev.orcamentos, orc],
+      }));
+      setResultado({ tipo: "orcamento", total });
+      setEtapa("concluido");
+      return;
+    }
+
+    const vendedor = vendedoresAtivos.find((v) => v.id === vendedorId);
+    const comissaoValor = vendedor ? total * (Number(vendedor.percentualComissao || 0) / 100) : 0;
+    let comissaoGerenteValor = 0, gerenteComercialId = null;
+    if (vendedor?.gerenteComercialId) {
+      const gerente = db.vendedores.find((v) => v.id === vendedor.gerenteComercialId);
+      if (gerente) { gerenteComercialId = gerente.id; comissaoGerenteValor = total * (Number(gerente.percentualComissaoGerente || 0) / 100); }
+    }
+    const parcelas = gerarParcelas(condicaoPagamento, total, todayISO());
+    const itensComCfop = carrinho.map((it) => {
+      const prod = produtos.find((p) => p.id === it.produtoId);
+      const cfop = determinarCFOP(empresa?.tipoEmpresa, filial?.uf, cliente?.uf, ehSim(prod?.residuo));
+      return { produtoId: it.produtoId, qtd: it.qtd, precoUnit: it.precoUnit, cfop };
+    });
+    const venda = {
+      id: uid(), filialId, data: todayISO(), clienteId, vendedorId,
+      itens: itensComCfop, total, comissaoValor, gerenteComercialId, comissaoGerenteValor,
+      condicaoPagamento, centroCustoId: "", parcelas, nfe: null, origem: "Força de Vendas",
+    };
+    const movimentos = carrinho.map((it) => ({ id: uid(), filialId, data: todayISO(), produtoId: it.produtoId, tipo: "saida", qtd: it.qtd, motivo: "Venda (Força de Vendas)", origem: "venda:" + venda.id }));
+
+    update((prev) => ({
+      ...prev,
+      clientes: novoClienteRegistro ? [...prev.clientes, novoClienteRegistro] : prev.clientes,
+      vendas: [...prev.vendas, venda],
+      movimentacoesEstoque: [...prev.movimentacoesEstoque, ...movimentos],
+    }));
+
+    let pix = null;
+    if (condicaoPagamento === "vista_pix" && empresa?.chavePix) {
+      pix = gerarPayloadPix({ chave: empresa.chavePix, valor: total, nomeRecebedor: empresa.nome, cidade: filial?.cidade, txid: venda.id });
+    }
+    setResultado({ tipo: "venda", total, pix, condicaoPagamento });
+    setEtapa("concluido");
+  }
+
+  const passos = ["cliente", "produtos", "finalizar"];
+  const passoAtual = passos.indexOf(etapa);
+
+  return (
+    <div style={{ maxWidth: 480, margin: "0 auto", display: "flex", flexDirection: "column", gap: 16 }}>
+      {etapa !== "concluido" && (
+        <div style={{ display: "flex", gap: 6 }}>
+          {passos.map((p, i) => (
+            <div key={p} style={{ flex: 1, height: 5, borderRadius: 3, background: i <= passoAtual ? GREEN : BORDER }} />
+          ))}
+        </div>
+      )}
+
+      {/* ---- Etapa: vendedor + cliente ---- */}
+      {etapa === "cliente" && (
+        <>
+          <Card title="Quem está vendendo?">
+            <Select options={vendedoresAtivos.map((v) => ({ value: v.id, label: v.apelido || v.nomeCompleto }))} value={vendedorId} onChange={(e) => setVendedorId(e.target.value)} />
+          </Card>
+          <Card title="Cliente" subtitle="Escolha um cliente já cadastrado ou preencha os dados básicos de um novo — o cadastro é criado automaticamente.">
+            <TextInput placeholder="Buscar cliente pelo nome…" value={buscaCliente} onChange={(e) => { setBuscaCliente(e.target.value); setClienteSelecionadoId(""); }} style={{ marginBottom: 10 }} />
+            {!clienteSelecionadoId && buscaCliente && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 12, maxHeight: 160, overflowY: "auto" }}>
+                {clientesFiltrados.map((c) => (
+                  <button key={c.id} onClick={() => { setClienteSelecionadoId(c.id); setBuscaCliente(c.razaoSocial); }} style={{ textAlign: "left", padding: "8px 10px", borderRadius: 8, border: `1px solid ${BORDER}`, background: CARD, cursor: "pointer", fontSize: 13 }}>
+                    {c.razaoSocial} {c.cidade ? `— ${c.cidade}/${c.uf}` : ""}
+                  </button>
+                ))}
+                {!clientesFiltrados.length && <div style={{ fontSize: 12, color: MUTED }}>Nenhum cliente encontrado — preencha os dados abaixo para cadastrar um novo.</div>}
+              </div>
+            )}
+            {clienteSelecionadoId ? (
+              <div style={{ background: "#EAF3EC", borderRadius: 8, padding: 10, fontSize: 13, fontWeight: 700, color: GREEN, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                {clienteObj?.razaoSocial}
+                <button onClick={() => { setClienteSelecionadoId(""); setBuscaCliente(""); }} style={{ border: "none", background: "none", color: DANGER, cursor: "pointer", fontWeight: 700 }}>trocar</button>
+              </div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                <div style={{ fontSize: 12, color: MUTED, fontWeight: 700 }}>OU CADASTRE UM NOVO CLIENTE:</div>
+                <Field label="Nome / Razão social"><TextInput value={novoCliente.razaoSocial} onChange={(e) => setNovoCliente({ ...novoCliente, razaoSocial: e.target.value })} /></Field>
+                <div style={{ display: "flex", gap: 10 }}>
+                  <Field label="Telefone"><TextInput value={novoCliente.telefone1} onChange={(e) => setNovoCliente({ ...novoCliente, telefone1: e.target.value })} /></Field>
+                  <Field label="Cidade"><TextInput value={novoCliente.cidade} onChange={(e) => setNovoCliente({ ...novoCliente, cidade: e.target.value })} /></Field>
+                  <Field label="UF"><TextInput maxLength={2} value={novoCliente.uf} onChange={(e) => setNovoCliente({ ...novoCliente, uf: e.target.value.toUpperCase() })} style={{ width: 60 }} /></Field>
+                </div>
+              </div>
+            )}
+          </Card>
+          <Button onClick={() => setEtapa("produtos")} disabled={!vendedorId || (!clienteSelecionadoId && !novoCliente.razaoSocial)} style={{ padding: "14px", fontSize: 15 }}>Continuar →</Button>
+        </>
+      )}
+
+      {/* ---- Etapa: produtos ---- */}
+      {etapa === "produtos" && (
+        <>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+            {produtos.map((p) => {
+              const noCarrinho = carrinho.find((it) => it.produtoId === p.id);
+              return (
+                <div key={p.id} style={{ background: CARD, border: `1px solid ${noCarrinho ? GREEN : BORDER}`, borderRadius: 12, overflow: "hidden" }}>
+                  <div onClick={() => addAoCarrinho(p)} style={{ cursor: "pointer", width: "100%", height: 84, background: p.foto?.dataUrl ? `url(${p.foto.dataUrl}) center/cover` : BG, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                    {!p.foto?.dataUrl && <span style={{ fontSize: 26, opacity: 0.3 }}>📦</span>}
+                  </div>
+                  <div style={{ padding: 9 }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: INK, minHeight: 30 }}>{p.nome}</div>
+                    <div style={{ fontSize: 13.5, fontWeight: 800, color: GREEN, marginTop: 2 }}>{brl(p.precoVenda)}</div>
+                    {noCarrinho ? (
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 8 }}>
+                        <button onClick={() => alterarQtd(p.id, -1)} style={{ width: 28, height: 28, borderRadius: 6, border: `1px solid ${BORDER}`, background: BG, cursor: "pointer", fontWeight: 800 }}>−</button>
+                        <span style={{ fontWeight: 800, fontSize: 13 }}>{noCarrinho.qtd}</span>
+                        <button onClick={() => alterarQtd(p.id, 1)} style={{ width: 28, height: 28, borderRadius: 6, border: "none", background: GREEN, color: "#fff", cursor: "pointer", fontWeight: 800 }}>+</button>
+                      </div>
+                    ) : (
+                      <button onClick={() => addAoCarrinho(p)} style={{ width: "100%", marginTop: 8, padding: "6px 0", borderRadius: 6, border: "none", background: GOLD, color: GREEN_DARK, fontWeight: 800, fontSize: 12, cursor: "pointer" }}>+ Adicionar</button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+            {!produtos.length && <div style={{ gridColumn: "1 / -1", color: MUTED, fontSize: 13, textAlign: "center", padding: 20 }}>Nenhum produto cadastrado ainda.</div>}
+          </div>
+
+          {qtdItensCarrinho > 0 && (
+            <div style={{ position: "sticky", bottom: 10, background: GREEN, color: "#fff", borderRadius: 12, padding: "12px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", boxShadow: "0 6px 20px rgba(0,0,0,0.25)" }}>
+              <div style={{ fontSize: 12.5 }}>{qtdItensCarrinho} item(ns) · <b>{brl(totalCarrinho)}</b></div>
+              <button onClick={() => setEtapa("finalizar")} style={{ background: GOLD, color: GREEN_DARK, border: "none", borderRadius: 8, padding: "8px 16px", fontWeight: 800, cursor: "pointer" }}>Ver pedido →</button>
+            </div>
+          )}
+          <Button variant="ghost" onClick={() => setEtapa("cliente")}>← Voltar</Button>
+        </>
+      )}
+
+      {/* ---- Etapa: finalizar ---- */}
+      {etapa === "finalizar" && (
+        <>
+          <Card title="Resumo do pedido">
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {carrinho.map((it) => {
+                const p = produtos.find((x) => x.id === it.produtoId);
+                return (
+                  <div key={it.produtoId} style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
+                    <span>{it.qtd}x {p?.nome}</span>
+                    <span style={{ fontWeight: 700 }}>{brl(it.qtd * it.precoUnit)}</span>
+                  </div>
+                );
+              })}
+              <div style={{ height: 1, background: BORDER, margin: "6px 0" }} />
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 16, fontWeight: 800, color: GREEN }}>
+                <span>Total</span><span>{brl(totalCarrinho)}</span>
+              </div>
+            </div>
+          </Card>
+
+          <Card title="Tipo de documento">
+            <div style={{ display: "flex", gap: 10 }}>
+              <button onClick={() => setTipoDocumento("orcamento")} style={{ flex: 1, padding: "12px", borderRadius: 10, border: `2px solid ${tipoDocumento === "orcamento" ? GOLD : BORDER}`, background: tipoDocumento === "orcamento" ? "#FBF3DC" : CARD, fontWeight: 800, cursor: "pointer", color: GREEN }}>Orçamento</button>
+              <button onClick={() => setTipoDocumento("venda")} style={{ flex: 1, padding: "12px", borderRadius: 10, border: `2px solid ${tipoDocumento === "venda" ? GREEN : BORDER}`, background: tipoDocumento === "venda" ? "#EAF3EC" : CARD, fontWeight: 800, cursor: "pointer", color: GREEN }}>Venda</button>
+            </div>
+            {tipoDocumento === "orcamento" && <div style={{ fontSize: 11.5, color: MUTED, marginTop: 8 }}>Orçamento não movimenta estoque nem financeiro — é só uma proposta para o cliente.</div>}
+          </Card>
+
+          {tipoDocumento === "venda" && (
+            <Card title="Condição de pagamento">
+              <Select options={CONDICOES_PAGAMENTO} value={condicaoPagamento} onChange={(e) => setCondicaoPagamento(e.target.value)} />
+              {condicaoPagamento === "vista_pix" && !empresa?.chavePix && (
+                <div style={{ fontSize: 11.5, color: DANGER, marginTop: 8 }}>Cadastre a chave Pix da empresa em Empresa &amp; Filiais para gerar o QR Code.</div>
+              )}
+            </Card>
+          )}
+
+          <Button onClick={concluirPedido} style={{ padding: "14px", fontSize: 15 }}>{tipoDocumento === "orcamento" ? "Gerar orçamento" : "Concluir venda"}</Button>
+          <Button variant="ghost" onClick={() => setEtapa("produtos")}>← Voltar aos produtos</Button>
+        </>
+      )}
+
+      {/* ---- Etapa: concluído ---- */}
+      {etapa === "concluido" && resultado && (
+        <Card title={resultado.tipo === "orcamento" ? "Orçamento gerado!" : "Venda concluída!"}>
+          <div style={{ textAlign: "center", padding: "10px 0" }}>
+            <div style={{ fontSize: 34, fontWeight: 800, color: GREEN }}>{brl(resultado.total)}</div>
+            {resultado.tipo === "orcamento" && <div style={{ fontSize: 12.5, color: MUTED, marginTop: 4 }}>Salvo em Orçamentos — nada foi lançado no financeiro ainda.</div>}
+            {resultado.tipo === "venda" && (
+              <div style={{ fontSize: 12.5, color: MUTED, marginTop: 4 }}>Estoque, financeiro, comissão e relatórios já foram atualizados.</div>
+            )}
+
+            {resultado.tipo === "venda" && resultado.condicaoPagamento === "vista_pix" && resultado.pix && (
+              <div style={{ marginTop: 18 }}>
+                <img src={urlQrCode(resultado.pix, 200)} alt="QR Code Pix" style={{ width: 200, height: 200, borderRadius: 8, border: `1px solid ${BORDER}` }} />
+                <div style={{ fontSize: 11, color: MUTED, marginTop: 8 }}>Pix Copia e Cola:</div>
+                <textarea readOnly value={resultado.pix} onClick={(e) => e.target.select()} style={{ width: "100%", fontSize: 10, fontFamily: "monospace", padding: 8, borderRadius: 6, border: `1px solid ${BORDER}`, marginTop: 4, resize: "none" }} rows={3} />
+              </div>
+            )}
+            {resultado.tipo === "venda" && resultado.condicaoPagamento?.startsWith("boleto") && (
+              <div style={{ marginTop: 14, background: "#FBEAE4", borderRadius: 8, padding: 12, fontSize: 11.5, color: "#7A2E1B", textAlign: "left" }}>
+                A emissão de boleto real exige convênio de cobrança com um banco — não incluída neste protótipo. A venda já foi lançada com as parcelas corretas; gere o boleto no seu banco quando for cobrar.
+              </div>
+            )}
+
+            <Button onClick={reiniciar} style={{ marginTop: 20 }}>Novo pedido</Button>
+          </div>
+        </Card>
+      )}
     </div>
   );
 }
