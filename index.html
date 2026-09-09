@@ -323,6 +323,51 @@ function gridCols(isMobile, desktop) {
   return isMobile ? "1fr" : desktop;
 }
 
+/* -------- Ícone animado da galinha (identidade visual do AVISOFT) -------- */
+const GALINHA_ICON_DATA_URL = "data:image/png;base64,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";
+
+/* Estilos globais de animação — injetados uma única vez na raiz do app. */
+function GlobalAnimationStyles() {
+  return (
+    <style>{`
+      @keyframes avisoftBicada {
+        0%   { transform: translateY(0) rotate(0deg); }
+        35%  { transform: translateY(-5px) rotate(-4deg); }
+        50%  { transform: translateY(7px) rotate(9deg); }
+        65%  { transform: translateY(-2px) rotate(-2deg); }
+        80%  { transform: translateY(0) rotate(0deg); }
+        100% { transform: translateY(0) rotate(0deg); }
+      }
+      @keyframes avisoftPontinhos {
+        0%, 100% { opacity: 0.25; }
+        50% { opacity: 1; }
+      }
+    `}</style>
+  );
+}
+
+/* Galinha "bicando a tela" — usada nas telas de carregamento. */
+function GalinhaCarregando({ mensagem }) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 14 }}>
+      <img
+        src={GALINHA_ICON_DATA_URL}
+        alt="Carregando"
+        style={{ width: 64, height: 64, transformOrigin: "70% 30%", animation: "avisoftBicada 1.1s ease-in-out infinite" }}
+      />
+      <div style={{ fontSize: 13, color: MUTED, fontWeight: 600 }}>
+        {mensagem || "Carregando"}
+        <span style={{ display: "inline-block", animation: "avisoftPontinhos 1.4s ease-in-out infinite" }}>…</span>
+      </div>
+    </div>
+  );
+}
+
+/* Galinha fixa (estática) — usada como marca na tela de login. */
+function GalinhaLogo({ size = 56 }) {
+  return <img src={GALINHA_ICON_DATA_URL} alt="AVISOFT" style={{ width: size, height: size }} />;
+}
+
 function todayISO() {
   return new Date().toISOString().slice(0, 10);
 }
@@ -854,6 +899,7 @@ export default function AvisoftRoot() {
   const isMobile = useViewportIsMobile();
   return (
     <IsMobileContext.Provider value={isMobile}>
+      <GlobalAnimationStyles />
       <ErrorBoundary>
         <AvisoftApp />
       </ErrorBoundary>
@@ -945,8 +991,8 @@ function AvisoftApp() {
 
   if (conn === undefined || (conn && loading)) {
     return (
-      <div style={shell()}>
-        <div style={{ margin: "auto", color: MUTED, fontSize: 14 }}>Conectando AVISOFT ERP…</div>
+      <div style={{ ...shell(), justifyContent: "center", alignItems: "center" }}>
+        <GalinhaCarregando mensagem="Conectando à planilha" />
       </div>
     );
   }
@@ -959,7 +1005,7 @@ function AvisoftApp() {
     return (
       <div style={{ ...shell(), justifyContent: "center", alignItems: "center", padding: 24 }}>
         <div style={{ background: CARD, border: `1px solid ${DANGER}`, borderRadius: 12, padding: 24, maxWidth: 520 }}>
-          <div style={{ fontSize: 16, fontWeight: 800, color: DANGER, marginBottom: 8 }}>Não consegui carregar os dados AVISOFT ERP</div>
+          <div style={{ fontSize: 16, fontWeight: 800, color: DANGER, marginBottom: 8 }}>Não consegui carregar os dados da planilha</div>
           <div style={{ fontSize: 12.5, color: MUTED, marginBottom: 12 }}>{connError}</div>
           <div style={{ display: "flex", gap: 8 }}>
             <Button onClick={() => setConn({ ...conn })}>Tentar de novo</Button>
@@ -970,7 +1016,13 @@ function AvisoftApp() {
     );
   }
 
-  if (!db) return null;
+  if (!db) {
+    return (
+      <div style={{ ...shell(), justifyContent: "center", alignItems: "center" }}>
+        <GalinhaCarregando mensagem="Carregando" />
+      </div>
+    );
+  }
 
   if (!db.empresas.length) {
     return <Onboarding onCreate={async (payload) => {
@@ -994,7 +1046,7 @@ function AvisoftApp() {
       <AlertaFasesLote db={db} update={update} filialId={session.filialId} />
       {saveError && (
         <div style={{ position: "fixed", top: 10, right: 10, background: DANGER, color: "#fff", padding: "8px 14px", borderRadius: 8, fontSize: 12.5, zIndex: 50, maxWidth: 360 }}>
-          Não foi possível salvar no Banco de Dados: {saveError}
+          Não foi possível salvar na planilha: {saveError}
         </div>
       )}
       <Sidebar
@@ -1065,7 +1117,7 @@ function ConexaoSetup({ onConectado }) {
         <div>
           <div style={{ fontSize: 12, fontWeight: 800, color: GOLD, letterSpacing: 1 }}>CONECTAR AO</div>
           <div style={{ fontSize: 26, fontWeight: 800, color: GREEN }}>Google Sheets</div>
-          <div style={{ fontSize: 12.5, color: MUTED, marginTop: 4 }}>O AVISOFT ERP usa chaves para conctar com o banco de dados. Cole abaixo a URL e a chave de API geradas — fale com o Suporte para mais informações.</div>
+          <div style={{ fontSize: 12.5, color: MUTED, marginTop: 4 }}>O AVISOFT usa sua planilha do Google como banco de dados. Cole abaixo a URL do Web App e a chave de API geradas ao implantar o script — veja o arquivo Code.gs para o passo a passo.</div>
         </div>
         <Field label="URL do aplicativo da Web (Apps Script)">
           <TextInput placeholder="https://script.google.com/macros/s/AKfycb.../exec" value={apiUrl} onChange={(e) => setApiUrl(e.target.value)} />
@@ -1132,10 +1184,13 @@ function Onboarding({ onCreate }) {
   return (
     <div style={{ ...shell(), justifyContent: "center", alignItems: "center" }}>
       <form onSubmit={submit} style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 14, padding: 32, width: 520, maxWidth: "92vw", display: "flex", flexDirection: "column", gap: 16 }}>
-        <div>
-          <div style={{ fontSize: 12, fontWeight: 800, color: GOLD, letterSpacing: 1 }}>BEM-VINDO AO</div>
-          <div style={{ fontSize: 26, fontWeight: 800, color: GREEN }}>AVISOFT</div>
-          <div style={{ fontSize: 12.5, color: MUTED, marginTop: 4 }}>Vamos cadastrar sua empresa e o primeiro usuário administrador.</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+          <GalinhaLogo size={44} />
+          <div>
+            <div style={{ fontSize: 12, fontWeight: 800, color: GOLD, letterSpacing: 1 }}>BEM-VINDO AO</div>
+            <div style={{ fontSize: 26, fontWeight: 800, color: GREEN }}>AVISOFT</div>
+            <div style={{ fontSize: 12.5, color: MUTED, marginTop: 4 }}>Vamos cadastrar sua empresa e o primeiro usuário administrador.</div>
+          </div>
         </div>
         <div style={{ display: "grid", gridTemplateColumns: gridCols(isMobile, "1fr 1fr"), gap: 12 }}>
           <Field label="Nome da empresa"><TextInput value={form.nome} onChange={(e) => setForm({ ...form, nome: e.target.value })} /></Field>
@@ -1179,8 +1234,11 @@ function Login({ db, onLogin }) {
   return (
     <div style={{ ...shell(), justifyContent: "center", alignItems: "center" }}>
       <form onSubmit={submit} style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 14, padding: 32, width: 360, maxWidth: "92vw", display: "flex", flexDirection: "column", gap: 14 }}>
-        <div style={{ fontSize: 26, fontWeight: 800, color: GREEN }}>AVISOFT</div>
-        <div style={{ fontSize: 12.5, color: MUTED, marginBottom: 6 }}>Entre com seu usuário e senha.</div>
+        <div style={{ display: "flex", justifyContent: "center", marginBottom: -4 }}>
+          <GalinhaLogo size={56} />
+        </div>
+        <div style={{ fontSize: 26, fontWeight: 800, color: GREEN, textAlign: "center" }}>AVISOFT</div>
+        <div style={{ fontSize: 12.5, color: MUTED, marginBottom: 6, textAlign: "center" }}>Entre com seu usuário e senha.</div>
         <Field label="Login"><TextInput autoFocus value={login} onChange={(e) => setLogin(e.target.value)} /></Field>
         <Field label="Senha"><TextInput type="password" value={senha} onChange={(e) => setSenha(e.target.value)} /></Field>
         {erro && <div style={{ color: DANGER, fontSize: 12.5 }}>{erro}</div>}
@@ -3519,7 +3577,7 @@ function SensoresIoT({ conn, db, filialId }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <div style={{ background: "#EDE7F6", border: "1px solid #C9B8E8", borderRadius: 10, padding: "12px 14px", fontSize: 12.5, color: "#4A3A70" }}>
-        Este módulo lê as leituras enviadas por sensores/hardware de galpão (temperatura, umidade, amônia, peso, consumo de água/ração) diretamente para o banco de dados, via o endpoint <code>action=hardware</code> do Script — sem passar pelo app. Cada leitura vira uma nova linha; nada é sobrescrito.
+        Este módulo lê as leituras enviadas por sensores/hardware de galpão (temperatura, umidade, amônia, peso, consumo de água/ração) diretamente para a planilha, via o endpoint <code>action=hardware</code> do Apps Script — sem passar pelo app. Cada leitura vira uma nova linha; nada é sobrescrito.
       </div>
 
       <Card title="Como um dispositivo deve enviar dados" subtitle="POST para a mesma URL do Apps Script, com Content-Type: text/plain e o corpo abaixo em JSON.">
