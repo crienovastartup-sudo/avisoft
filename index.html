@@ -451,6 +451,23 @@ function traduzErroApi(codigo) {
 }
 
 /* Lê o banco de dados inteiro (uma aba por coleção). */
+/* Corrige, recursivamente, qualquer valor de data que tenha vindo corrompido
+   da planilha (o Sheets às vezes converte "2026-10-08" para um timestamp
+   completo, tipo "2026-10-08T03:00:00.000Z") — corta sempre para "AAAA-MM-DD".
+   O Code.gs já evita isso na origem, mas isso aqui limpa o que já estiver salvo torto. */
+function sanitizarDatas(valor) {
+  if (typeof valor === "string") {
+    return /^\d{4}-\d{2}-\d{2}T/.test(valor) ? valor.slice(0, 10) : valor;
+  }
+  if (Array.isArray(valor)) return valor.map(sanitizarDatas);
+  if (valor && typeof valor === "object") {
+    const limpo = {};
+    Object.keys(valor).forEach((k) => { limpo[k] = sanitizarDatas(valor[k]); });
+    return limpo;
+  }
+  return valor;
+}
+
 async function apiLoadDB(conn) {
   const sep = conn.apiUrl.indexOf("?") >= 0 ? "&" : "?";
   const url = conn.apiUrl + sep + "apiKey=" + encodeURIComponent(conn.apiKey);
@@ -458,7 +475,7 @@ async function apiLoadDB(conn) {
   if (!res.ok) throw new Error("Falha de rede (HTTP " + res.status + ")");
   const json = await res.json();
   if (json.error) throw new Error(traduzErroApi(json.error));
-  const db = json.db || {};
+  const db = sanitizarDatas(json.db || {});
   return { ...emptyDB(), ...db, empresas: Array.isArray(db.empresas) ? db.empresas : [] };
 }
 
