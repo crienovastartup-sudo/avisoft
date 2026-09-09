@@ -1485,7 +1485,7 @@ function ModuleView({ activeModule, db, update, conn, filialId, empresaId, usuar
 
   switch (activeModule) {
     case "inicio":
-      return <Inicio db={db} filialId={filialId} />;
+      return <Inicio db={db} update={update} filialId={filialId} />;
     case "cadastro":
       return <CadastroEmpresa db={db} update={update} empresaId={empresaId} />;
     case "usuarios":
@@ -1679,7 +1679,7 @@ function montarVendaAutomatica({ filialId, data, produtoId, qtd, valorTotal, cli
 
 /* ---------------- Início / Dashboard ---------------- */
 
-function Inicio({ db, filialId }) {
+function Inicio({ db, update, filialId }) {
   const isMobile = useIsMobile();
   const vendas = db.vendas.filter((v) => v.filialId === filialId);
   const compras = db.compras.filter((c) => c.filialId === filialId);
@@ -1756,6 +1756,7 @@ function Inicio({ db, filialId }) {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+      {(!vendas.length || COLECOES_DEMO.some((chave) => (db[chave] || []).some((r) => r.filialId === filialId && r._demo))) && <CardDadosDemonstracao db={db} update={update} filialId={filialId} />}
       <div>
         <div style={{ fontSize: 20, fontWeight: 800, color: GREEN }}>Visão geral</div>
         <div style={{ fontSize: 13, color: MUTED }}>Resumo da filial selecionada, atualizado a cada lançamento.</div>
@@ -4645,6 +4646,289 @@ function ForcaDeVendas({ db, update, filialId }) {
         </>
       )}
     </div>
+  );
+}
+
+/* ---------------- Dados de demonstração (1 mês fictício) ---------------- */
+
+/* Gera um mês inteiro de operação fictícia para a filial atual: 320 mil aves
+   em postura (8 galpões x 40.000), 3 lotes próximos do descarte, vendas,
+   compras, produção de ração, financeiro etc. Só ADICIONA registros novos —
+   nunca apaga ou altera o que já existe. Tudo em português, claramente
+   fictício, só para demonstração do sistema. */
+function gerarDadosDemonstracao(filialId, empresaAtual, filialAtual) {
+  const hoje = new Date();
+  const hojeISO = todayISO();
+  const somarDias = (n) => { const d = new Date(hoje); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
+
+  // ---- Galpões ----
+  const galpoes = [1, 2, 3, 4, 5, 6, 7, 8].map((n) => ({ id: uid(), filialId, nome: `Galpão ${n}`, capacidade: 40000 }));
+
+  // ---- Lotes de aves (320.000 aves, 3 próximos do descarte) ----
+  const linhagens = ["Lohmann Brown", "Hy-Line Brown", "Dekalb White"];
+  const diasProximaFase = [12, 20, 27, 130, 150, 170, 190, 210]; // os 3 primeiros = próximos do descarte
+  const lotesAves = galpoes.map((g, i) => ({
+    id: uid(), filialId, codigo: `LT-2025-${String(i + 1).padStart(2, "0")}`, galpaoId: g.id,
+    linhagem: linhagens[i % linhagens.length],
+    dataAlojamento: somarDias(-440 + i * 10),
+    quantidadeAlojada: 40000,
+    fase: "postura",
+    proximaFase: "descarte",
+    dataProximaFase: somarDias(diasProximaFase[i]),
+  }));
+
+  // ---- Centros de custo ----
+  const centrosCusto = [
+    { id: uid(), filialId, nome: "Produção", codigo: "CC-01" },
+    { id: uid(), filialId, nome: "Comercial", codigo: "CC-02" },
+    { id: uid(), filialId, nome: "Administrativo", codigo: "CC-03" },
+  ];
+
+  // ---- Produtos (ovos) ----
+  const produtosOvo = [
+    { id: uid(), filialId, nome: "Ovo Extra", tipo: "ovo", unidade: "dz", custoUnit: 2.55, precoVenda: 6.4, cfop: "5101", residuo: "false" },
+    { id: uid(), filialId, nome: "Ovo Grande", tipo: "ovo", unidade: "dz", custoUnit: 2.4, precoVenda: 6.0, cfop: "5101", residuo: "false" },
+    { id: uid(), filialId, nome: "Ovo Médio", tipo: "ovo", unidade: "dz", custoUnit: 2.2, precoVenda: 5.6, cfop: "5101", residuo: "false" },
+    { id: uid(), filialId, nome: "Ovo Pequeno", tipo: "ovo", unidade: "dz", custoUnit: 2.0, precoVenda: 5.1, cfop: "5101", residuo: "false" },
+  ];
+  const produtoEsterco = { id: uid(), filialId, nome: "Esterco / Adubo Orgânico", tipo: "outro", unidade: "ton", custoUnit: 0, precoVenda: 180, cfop: "5101", residuo: "true" };
+  const produtos = [...produtosOvo, produtoEsterco];
+
+  // ---- Lotes de produto (ovo) com validade — alguns próximos de vencer ----
+  const lotesProduto = [];
+  produtosOvo.forEach((p, i) => {
+    lotesProduto.push({ id: uid(), filialId, produtoId: p.id, codigo: `L-${p.nome.slice(0, 3).toUpperCase()}-01`, dataProducao: somarDias(-20), dataValidade: somarDias(5 + i), quantidade: 3000 });
+    lotesProduto.push({ id: uid(), filialId, produtoId: p.id, codigo: `L-${p.nome.slice(0, 3).toUpperCase()}-02`, dataProducao: somarDias(-3), dataValidade: somarDias(35 + i), quantidade: 4500 });
+  });
+
+  // ---- Clientes (a maioria em PE, um em AL pra ter venda interestadual) ----
+  const clientes = [
+    { id: uid(), filialId, razaoSocial: "Supermercado Bom Preço Ltda", cpfCnpj: "12.345.678/0001-01", inscricaoEstadual: "0312345-6", endereco: "Av. Caxangá, 2000", numero: "2000", bairro: "Madalena", cidade: "Recife", uf: "PE", telefone1: "(81) 3222-1010", telefone2: "", email1: "compras@bompreco.exemplo.com.br", email2: "", responsavel: "Roberto Menezes", anexos: [] },
+    { id: uid(), filialId, razaoSocial: "Atacadão Nordeste Alimentos", cpfCnpj: "23.456.789/0001-02", inscricaoEstadual: "0323456-7", endereco: "Rod. BR-101 Sul, km 12", numero: "s/n", bairro: "Prazeres", cidade: "Jaboatão dos Guararapes", uf: "PE", telefone1: "(81) 3221-2020", telefone2: "", email1: "financeiro@atacadaonordeste.exemplo.com.br", email2: "", responsavel: "Simone Cavalcanti", anexos: [] },
+    { id: uid(), filialId, razaoSocial: "Mercearia Boa Vista", cpfCnpj: "34.567.890/0001-03", inscricaoEstadual: "0334567-8", endereco: "Rua da Matriz, 145", numero: "145", bairro: "Centro", cidade: "Igarassu", uf: "PE", telefone1: "(81) 3543-1122", telefone2: "", email1: "contato@merceariaboavista.exemplo.com.br", email2: "", responsavel: "Edvaldo Ferreira", anexos: [] },
+    { id: uid(), filialId, razaoSocial: "Distribuidora Ovos do Sertão", cpfCnpj: "45.678.901/0001-04", inscricaoEstadual: "0345678-9", endereco: "Av. Agamenon Magalhães, 890", numero: "890", bairro: "Centro", cidade: "Caruaru", uf: "PE", telefone1: "(81) 3721-3030", telefone2: "", email1: "vendas@ovosdosertao.exemplo.com.br", email2: "", responsavel: "Cícera Nascimento", anexos: [] },
+    { id: uid(), filialId, razaoSocial: "Rede Compre Bem Supermercados", cpfCnpj: "56.789.012/0001-05", inscricaoEstadual: "0356789-0", endereco: "Av. Boa Viagem, 3200", numero: "3200", bairro: "Boa Viagem", cidade: "Recife", uf: "PE", telefone1: "(81) 3466-4040", telefone2: "", email1: "compras@comprebem.exemplo.com.br", email2: "", responsavel: "Marcelo Andrade", anexos: [] },
+    { id: uid(), filialId, razaoSocial: "Comercial Alagoas Alimentos", cpfCnpj: "67.890.123/0001-06", inscricaoEstadual: "24123456-7", endereco: "Rua do Comércio, 500", numero: "500", bairro: "Jaraguá", cidade: "Maceió", uf: "AL", telefone1: "(82) 3221-5050", telefone2: "", email1: "compras@comercialalagoas.exemplo.com.br", email2: "", responsavel: "Patrícia Souza", anexos: [] },
+    { id: uid(), filialId, razaoSocial: "Feira Livre Central Ltda", cpfCnpj: "78.901.234/0001-07", inscricaoEstadual: "0378901-2", endereco: "Praça do Mercado, 10", numero: "10", bairro: "Varadouro", cidade: "Olinda", uf: "PE", telefone1: "(81) 3439-6060", telefone2: "", email1: "feiralivre@exemplo.com.br", email2: "", responsavel: "Josenildo Pereira", anexos: [] },
+  ];
+
+  // ---- Fornecedores ----
+  const fornecedores = [
+    { id: uid(), filialId, razaoSocial: "Cerealista Nordeste Grãos Ltda", cpfCnpj: "11.222.333/0001-11", inscricaoEstadual: "0311222-3", endereco: "Rod. PE-05, km 30", numero: "s/n", bairro: "Distrito Industrial", cidade: "Igarassu", uf: "PE", telefone1: "(81) 3543-7070", telefone2: "", email1: "vendas@nordestegraos.exemplo.com.br", email2: "", responsavel: "Antônio Barbosa", anexos: [] },
+    { id: uid(), filialId, razaoSocial: "Agroindustrial Soja Brasil S/A", cpfCnpj: "22.333.444/0001-22", inscricaoEstadual: "0322333-4", endereco: "Av. Industrial, 1500", numero: "1500", bairro: "Curado", cidade: "Recife", uf: "PE", telefone1: "(81) 3452-8080", telefone2: "", email1: "comercial@sojabrasil.exemplo.com.br", email2: "", responsavel: "Karla Diniz", anexos: [] },
+    { id: uid(), filialId, razaoSocial: "Embalagens Igarassu Ltda", cpfCnpj: "33.444.555/0001-33", inscricaoEstadual: "0333444-5", endereco: "Rua das Indústrias, 220", numero: "220", bairro: "Centro", cidade: "Igarassu", uf: "PE", telefone1: "(81) 3543-9090", telefone2: "", email1: "vendas@embalagensigarassu.exemplo.com.br", email2: "", responsavel: "Rogério Lins", anexos: [] },
+  ];
+
+  // ---- Vendedores (com gerente comercial) ----
+  const gerenteId = uid();
+  const vendedores = [
+    { id: gerenteId, filialId, nomeCompleto: "Carlos Eduardo Silva", apelido: "Cadu", telefone: "(81) 99911-0001", percentualComissao: 2, gerenteComercialId: "", percentualComissaoGerente: 1, ativo: "true" },
+    { id: uid(), filialId, nomeCompleto: "Marina Alves Costa", apelido: "Marina", telefone: "(81) 99911-0002", percentualComissao: 3, gerenteComercialId: gerenteId, percentualComissaoGerente: 0, ativo: "true" },
+    { id: uid(), filialId, nomeCompleto: "João Pedro Santos", apelido: "João", telefone: "(81) 99911-0003", percentualComissao: 3, gerenteComercialId: gerenteId, percentualComissaoGerente: 0, ativo: "true" },
+    { id: uid(), filialId, nomeCompleto: "Fernanda Lima Rocha", apelido: "Fê", telefone: "(81) 99911-0004", percentualComissao: 2.5, gerenteComercialId: gerenteId, percentualComissaoGerente: 0, ativo: "true" },
+  ];
+  const vendedoresVenda = vendedores.slice(1); // quem efetivamente vende (o gerente só recebe comissão)
+
+  // ---- Funcionários ----
+  const funcionarios = [
+    { id: uid(), filialId, nome: "Antônio Carlos Ferreira", cargo: "Encarregado de Produção", salarioBruto: 3200, encargosPercentual: 68, beneficios: 350, ativo: "true", tipoDocumento: "RG", numeroDocumento: "12.345.678-9", anexos: [], cargoConfianca: "true", deficiente: "false", qualDeficiencia: "", alergias: "", ultimoEmprego: "Granja São José", contatoFamiliaNome: "Rita Ferreira", contatoFamiliaTelefone: "(81) 99922-0001", antecedentesCriminais: "false", passagemPolicia: "false", dataContratacao: somarDias(-600), entrevistadoPor: "Pedro Ivo Holanda", emiteHolerite: "true", tipoSanguineo: "O+", tomaRemedioControlado: "false", qualRemedio: "" },
+    { id: uid(), filialId, nome: "Maria José Oliveira", cargo: "Auxiliar de Classificação", salarioBruto: 1650, encargosPercentual: 68, beneficios: 250, ativo: "true", tipoDocumento: "RG", numeroDocumento: "23.456.789-0", anexos: [], cargoConfianca: "false", deficiente: "false", qualDeficiencia: "", alergias: "", ultimoEmprego: "Avícola Central", contatoFamiliaNome: "João Oliveira", contatoFamiliaTelefone: "(81) 99922-0002", antecedentesCriminais: "false", passagemPolicia: "false", dataContratacao: somarDias(-400), entrevistadoPor: "Antônio Carlos Ferreira", emiteHolerite: "true", tipoSanguineo: "A+", tomaRemedioControlado: "false", qualRemedio: "" },
+    { id: uid(), filialId, nome: "Pedro Henrique Souza", cargo: "Motorista", salarioBruto: 2100, encargosPercentual: 68, beneficios: 300, ativo: "true", tipoDocumento: "CNH", numeroDocumento: "98765432100", anexos: [], cargoConfianca: "false", deficiente: "false", qualDeficiencia: "", alergias: "", ultimoEmprego: "Transportadora Igarassu", contatoFamiliaNome: "Marli Souza", contatoFamiliaTelefone: "(81) 99922-0003", antecedentesCriminais: "false", passagemPolicia: "false", dataContratacao: somarDias(-300), entrevistadoPor: "Pedro Ivo Holanda", emiteHolerite: "true", tipoSanguineo: "B+", tomaRemedioControlado: "false", qualRemedio: "" },
+    { id: uid(), filialId, nome: "Ana Paula Nascimento", cargo: "Auxiliar Administrativo", salarioBruto: 1700, encargosPercentual: 68, beneficios: 250, ativo: "true", tipoDocumento: "RG", numeroDocumento: "34.567.890-1", anexos: [], cargoConfianca: "false", deficiente: "false", qualDeficiencia: "", alergias: "Nenhuma relatada", ultimoEmprego: "Escritório Contábil Silva", contatoFamiliaNome: "Carla Nascimento", contatoFamiliaTelefone: "(81) 99922-0004", antecedentesCriminais: "false", passagemPolicia: "false", dataContratacao: somarDias(-250), entrevistadoPor: "Ana Cristina Holanda", emiteHolerite: "true", tipoSanguineo: "AB+", tomaRemedioControlado: "false", qualRemedio: "" },
+    { id: uid(), filialId, nome: "José Roberto Lima", cargo: "Técnico Avícola", salarioBruto: 2800, encargosPercentual: 68, beneficios: 350, ativo: "true", tipoDocumento: "RG", numeroDocumento: "45.678.901-2", anexos: [], cargoConfianca: "true", deficiente: "false", qualDeficiencia: "", alergias: "", ultimoEmprego: "Cooperativa Avícola PE", contatoFamiliaNome: "Solange Lima", contatoFamiliaTelefone: "(81) 99922-0005", antecedentesCriminais: "false", passagemPolicia: "false", dataContratacao: somarDias(-500), entrevistadoPor: "Pedro Ivo Holanda", emiteHolerite: "true", tipoSanguineo: "O-", tomaRemedioControlado: "false", qualRemedio: "" },
+    { id: uid(), filialId, nome: "Juliana Ferreira Dias", cargo: "Auxiliar de Limpeza", salarioBruto: 1518, encargosPercentual: 68, beneficios: 200, ativo: "true", tipoDocumento: "RG", numeroDocumento: "56.789.012-3", anexos: [], cargoConfianca: "false", deficiente: "false", qualDeficiencia: "", alergias: "", ultimoEmprego: "Primeiro emprego", contatoFamiliaNome: "Marta Dias", contatoFamiliaTelefone: "(81) 99922-0006", antecedentesCriminais: "false", passagemPolicia: "false", dataContratacao: somarDias(-120), entrevistadoPor: "Ana Cristina Holanda", emiteHolerite: "true", tipoSanguineo: "A-", tomaRemedioControlado: "false", qualRemedio: "" },
+  ];
+
+  // ---- Motoristas e veículos ----
+  const motoristas = [
+    { id: uid(), filialId, nomeCompleto: "Pedro Henrique Souza", apelido: "Pedrinho", telefone: "(81) 99933-0001", cnh: "98765432100", foto: null, anexos: [] },
+    { id: uid(), filialId, nomeCompleto: "Manoel Gomes da Silva", apelido: "Seu Manoel", telefone: "(81) 99933-0002", cnh: "12312312312", foto: null, anexos: [] },
+  ];
+  const veiculos = [
+    { id: uid(), filialId, placa: "PBA1234", modelo: "Caminhão Baú 3/4" },
+    { id: uid(), filialId, placa: "PBB5678", modelo: "Van Sprinter" },
+  ];
+
+  // ---- Formulação de ração ----
+  const formulacao = {
+    id: uid(), filialId, nome: "Ração Postura Padrão",
+    ingredientes: [
+      { nome: "Milho", percentual: 62, custoKg: 0.72 },
+      { nome: "Farelo de Soja", percentual: 24, custoKg: 1.9 },
+      { nome: "Calcário Calcítico", percentual: 9, custoKg: 0.35 },
+      { nome: "Premix Mineral/Vitamínico", percentual: 5, custoKg: 4.2 },
+    ],
+  };
+  const custoKgFormulacao = formulacao.ingredientes.reduce((s, i) => s + (i.percentual / 100) * i.custoKg, 0);
+
+  // ---- Loop de 30 dias: postura, mortalidade e produção de ração ----
+  const registrosPostura = [];
+  const registrosMortalidade = [];
+  const producoesRacao = [];
+  for (let d = 29; d >= 0; d--) {
+    const data = somarDias(-d);
+    lotesAves.forEach((lote, li) => {
+      const taxaPostura = 0.90 + (Math.sin(li + d / 5) * 0.03); // variação leve, realista
+      const ovosProduzidos = Math.round(40000 * taxaPostura);
+      const ovosQuebrados = Math.round(ovosProduzidos * (0.012 + Math.random() * 0.008));
+      registrosPostura.push({ id: uid(), filialId, data, loteId: lote.id, ovosProduzidos, ovosQuebrados });
+
+      if (d % 7 === 0) { // mortalidade lançada semanalmente
+        const mortos = Math.round(40000 * (0.0006 + Math.random() * 0.0006));
+        registrosMortalidade.push({ id: uid(), filialId, data, loteId: lote.id, avesMortas: mortos, motivo: "Causas naturais / descarte sanitário de rotina" });
+      }
+    });
+
+    if (d % 3 === 0) { // produção de ração a cada 3 dias
+      const qtdKg = 9000;
+      producoesRacao.push({
+        id: uid(), filialId, data, formulacaoId: formulacao.id, moega: `Silo ${(producoesRacao.length % 3) + 1}`,
+        pesoPorSaco: 40, galpaoDestinoId: galpoes[producoesRacao.length % galpoes.length].id,
+        qtdKg, sacos: qtdKg / 40, custoTotal: qtdKg * custoKgFormulacao,
+      });
+    }
+  }
+
+  // ---- Vendas ao longo do mês (com CFOP calculado, lote FEFO e algumas com NF-e) ----
+  const vendas = [];
+  const movimentacoesEstoque = [];
+  for (let i = 0; i < 46; i++) {
+    const diaOffset = -Math.floor(Math.random() * 30);
+    const data = somarDias(diaOffset);
+    const cliente = clientes[Math.floor(Math.random() * clientes.length)];
+    const vendedor = vendedoresVenda[Math.floor(Math.random() * vendedoresVenda.length)];
+    const produto = produtosOvo[Math.floor(Math.random() * produtosOvo.length)];
+    const lotesDoProduto = lotesProduto.filter((l) => l.produtoId === produto.id).sort((a, b) => (a.dataValidade < b.dataValidade ? -1 : 1));
+    const lote = lotesDoProduto[0];
+    const qtd = 50 + Math.floor(Math.random() * 450); // dúzias
+    const precoUnit = produto.precoVenda;
+    const total = qtd * precoUnit;
+    const cfop = determinarCFOP(empresaAtual?.tipoEmpresa || "produtor", filialAtual?.uf, cliente.uf, false, false);
+    const condicoes = ["vista_pix", "vista_dinheiro", "vista_cartao", "boleto_30", "boleto_30_60"];
+    const condicaoPagamento = condicoes[Math.floor(Math.random() * condicoes.length)];
+    const parcelas = gerarParcelas(condicaoPagamento, total, data);
+    // marca como paga qualquer parcela já vencida, pra parecer operação real em andamento
+    parcelas.forEach((p) => { if (p.vencimento < hojeISO) p.status = Math.random() > 0.15 ? "pago" : "pendente"; });
+    const comissaoValor = total * (vendedor.percentualComissao / 100);
+    const comissaoGerenteValor = total * ((vendedores[0].percentualComissaoGerente || 0) / 100);
+    const emiteNfe = Math.random() > 0.25;
+    const venda = {
+      id: uid(), filialId, data, clienteId: cliente.id, vendedorId: vendedor.id,
+      itens: [{ produtoId: produto.id, qtd, precoUnit, cfop, loteId: lote ? lote.id : "" }],
+      total, comissaoValor, gerenteComercialId: vendedores[0].id, comissaoGerenteValor,
+      condicaoPagamento, centroCustoId: centrosCusto[1].id, parcelas,
+      nfe: emiteNfe ? { status: "autorizada", chave: gerarChaveAcessoFake(), protocolo: gerarProtocoloFake(), dataEmissao: data, ambiente: "homologacao" } : null,
+      origem: "Dados de demonstração",
+    };
+    vendas.push(venda);
+    movimentacoesEstoque.push({ id: uid(), filialId, data, produtoId: produto.id, tipo: "saida", qtd, motivo: "Venda (demonstração)", origem: "venda:" + venda.id });
+  }
+
+  // ---- Compras ao longo do mês (insumos) ----
+  const compras = [];
+  for (let i = 0; i < 18; i++) {
+    const data = somarDias(-Math.floor(Math.random() * 30));
+    const fornecedor = fornecedores[Math.floor(Math.random() * fornecedores.length)];
+    const categorias = ["insumo", "insumo", "insumo", "administrativo", "manutencao"];
+    const categoria = categorias[Math.floor(Math.random() * categorias.length)];
+    const valor = categoria === "insumo" ? 8000 + Math.random() * 12000 : 400 + Math.random() * 2500;
+    const condicaoPagamento = "boleto_30";
+    const parcelas = gerarParcelas(condicaoPagamento, valor, data);
+    parcelas.forEach((p) => { if (p.vencimento < hojeISO) p.status = Math.random() > 0.2 ? "pago" : "pendente"; });
+    compras.push({
+      id: uid(), filialId, data, fornecedorId: fornecedor.id, categoria,
+      descricao: categoria === "insumo" ? `Compra de ${fornecedor.razaoSocial.includes("Soja") ? "farelo de soja" : "milho"}` : categoria === "manutencao" ? "Manutenção de equipamentos" : "Despesas administrativas do mês",
+      valor, condicaoPagamento, centroCustoId: centrosCusto[0].id, parcelas,
+    });
+  }
+
+  // ---- Fretes / viagens de entrega ----
+  const fretes = [];
+  const viagensEntrega = [];
+  for (let i = 0; i < 10; i++) {
+    const data = somarDias(-Math.floor(Math.random() * 30));
+    const motorista = motoristas[i % motoristas.length];
+    const veiculo = veiculos[i % veiculos.length];
+    const cliente = clientes[Math.floor(Math.random() * clientes.length)];
+    const valorFrete = 80 + Math.random() * 220;
+    fretes.push({ id: uid(), filialId, data, motoristaId: motorista.id, veiculoId: veiculo.id, destino: `${cliente.razaoSocial} — ${cliente.cidade}/${cliente.uf}`, valorFrete, statusPagamento: Math.random() > 0.3 ? "pago" : "pendente" });
+    viagensEntrega.push({ id: uid(), filialId, data, motoristaId: motorista.id, veiculoId: veiculo.id, kmInicial: 40000 + i * 120, kmFinal: 40000 + i * 120 + 80 + Math.floor(Math.random() * 60), nivelCombustivel: "3/4", rota: `Entrega — ${cliente.cidade}/${cliente.uf}`, freteId: "", fotosAntes: [], status: "concluida" });
+  }
+
+  // ---- Esterco: produção periódica + algumas vendas ----
+  const registrosEsterco = [];
+  for (let i = 0; i < 6; i++) {
+    registrosEsterco.push({ id: uid(), filialId, data: somarDias(-i * 5), tipo: "producao", quantidadeTon: 8 + Math.random() * 4, valorVenda: "", comprador: "" });
+  }
+  const compradorEsterco = "Sítio Recanto Verde — produção orgânica";
+  registrosEsterco.push({ id: uid(), filialId, data: somarDias(-10), tipo: "venda", quantidadeTon: 12, valorVenda: 12 * 180, comprador: compradorEsterco });
+  registrosEsterco.push({ id: uid(), filialId, data: somarDias(-3), tipo: "venda", quantidadeTon: 8, valorVenda: 8 * 180, comprador: compradorEsterco });
+
+  const bruto = {
+    galpoes, lotesAves, centrosCusto, produtos, lotesProduto, clientes, fornecedores, vendedores,
+    funcionarios, motoristas, veiculos, formulacoes: [formulacao], producoesRacao,
+    registrosPostura, registrosMortalidade, vendas, movimentacoesEstoque, compras,
+    fretes, viagensEntrega, registrosEsterco,
+  };
+  // Marca cada registro gerado — assim dá pra remover só a demonstração depois,
+  // sem risco de apagar algo que você cadastrar de verdade.
+  const resultado = {};
+  Object.keys(bruto).forEach((chave) => { resultado[chave] = bruto[chave].map((r) => ({ ...r, _demo: true })); });
+  return resultado;
+}
+
+const COLECOES_DEMO = [
+  "galpoes", "lotesAves", "centrosCusto", "produtos", "lotesProduto", "clientes", "fornecedores", "vendedores",
+  "funcionarios", "motoristas", "veiculos", "formulacoes", "producoesRacao",
+  "registrosPostura", "registrosMortalidade", "vendas", "movimentacoesEstoque", "compras",
+  "fretes", "viagensEntrega", "registrosEsterco",
+];
+
+function CardDadosDemonstracao({ db, update, filialId }) {
+  const [gerando, setGerando] = useState(false);
+  const [feito, setFeito] = useState(false);
+  const [removendo, setRemovendo] = useState(false);
+
+  const temDemo = COLECOES_DEMO.some((chave) => (db[chave] || []).some((r) => r.filialId === filialId && r._demo));
+
+  function carregar() {
+    if (!window.confirm("Isso adiciona um mês inteiro de dados FICTÍCIOS (320 mil aves, vendas, compras, funcionários etc.) à filial atual, só para demonstração. Os dados que já existem não são apagados. Continuar?")) return;
+    setGerando(true);
+    const empresaAtual = db.empresas.find((e) => e.filiais.some((f) => f.id === filialId));
+    const filialAtual = empresaAtual?.filiais.find((f) => f.id === filialId);
+    const dados = gerarDadosDemonstracao(filialId, empresaAtual, filialAtual);
+    update((prev) => {
+      const next = { ...prev };
+      Object.keys(dados).forEach((chave) => { next[chave] = [...(prev[chave] || []), ...dados[chave]]; });
+      return next;
+    });
+    setGerando(false);
+    setFeito(true);
+  }
+
+  function remover() {
+    if (!window.confirm("Isso remove TODOS os dados marcados como demonstração desta filial, em todos os módulos (aves, vendas, compras, funcionários etc.). Nada que você tenha cadastrado de verdade é afetado. Confirmar remoção?")) return;
+    setRemovendo(true);
+    update((prev) => {
+      const next = { ...prev };
+      COLECOES_DEMO.forEach((chave) => {
+        next[chave] = (prev[chave] || []).filter((r) => !(r.filialId === filialId && r._demo));
+      });
+      return next;
+    });
+    setRemovendo(false);
+    setFeito(false);
+  }
+
+  return (
+    <Card title="Dados de demonstração" subtitle="Carrega 1 mês fictício de operação (320 mil aves, 3 lotes próximos do descarte, vendas, compras, funcionários etc.) para apresentar o sistema. Não apaga nada do que já existe.">
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+        <Button onClick={carregar} disabled={gerando}>{gerando ? "Gerando…" : "Carregar dados de demonstração"}</Button>
+        {temDemo && <Button variant="danger" onClick={remover} disabled={removendo}>{removendo ? "Removendo…" : "Remover dados de demonstração"}</Button>}
+      </div>
+      {feito && <div style={{ fontSize: 12, color: SUCCESS, marginTop: 8, fontWeight: 700 }}>Dados de demonstração carregados! Navegue pelos módulos para conferir.</div>}
+      {temDemo && <div style={{ fontSize: 11.5, color: MUTED, marginTop: 8 }}>Há dados de demonstração carregados nesta filial.</div>}
+    </Card>
   );
 }
 
