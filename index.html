@@ -632,13 +632,13 @@ function Table({ columns, rows, onEdit, onDelete, emptyText }) {
 }
 
 /* -------- Modal genérico -------- */
-function Modal({ title, onClose, children, wide }) {
+function Modal({ title, onClose, children, wide, travado }) {
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(15,42,29,0.55)", display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "5vh 20px", zIndex: 100, overflowY: "auto" }} onClick={onClose}>
+    <div style={{ position: "fixed", inset: 0, background: "rgba(15,42,29,0.55)", display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "5vh 20px", zIndex: 100, overflowY: "auto" }} onClick={travado ? undefined : onClose}>
       <div style={{ background: CARD, borderRadius: 12, width: wide ? 780 : 520, maxWidth: "100%", padding: 0, boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }} onClick={(e) => e.stopPropagation()}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 20px", borderBottom: `1px solid ${BORDER}` }}>
           <div style={{ fontSize: 14, fontWeight: 800, color: GREEN }}>{title}</div>
-          <button onClick={onClose} style={{ border: "none", background: "none", fontSize: 18, cursor: "pointer", color: MUTED, lineHeight: 1 }}>×</button>
+          {!travado && <button onClick={onClose} style={{ border: "none", background: "none", fontSize: 18, cursor: "pointer", color: MUTED, lineHeight: 1 }}>×</button>}
         </div>
         <div style={{ padding: 20, maxHeight: "78vh", overflowY: "auto" }}>{children}</div>
       </div>
@@ -2228,7 +2228,10 @@ function lotesFEFO(db, filialId, produtoId) {
 function LotesProduto({ db, update, filialId }) {
   const produtos = db.produtos.filter((p) => p.filialId === filialId);
   const lotes = db.lotesProduto.filter((l) => l.filialId === filialId);
+  const clientes = db.clientes.filter((c) => c.filialId === filialId);
+  const vendedores = db.vendedores.filter((v) => v.filialId === filialId);
   const hoje = todayISO();
+  const [loteVendas, setLoteVendas] = useState(null); // lote selecionado para o popup
 
   function corValidade(dataValidade) {
     if (!dataValidade) return MUTED;
@@ -2239,34 +2242,110 @@ function LotesProduto({ db, update, filialId }) {
     return SUCCESS;
   }
 
+  /* Vendas que têm ao menos um item referenciando este lote, com os dados
+     de cliente/vendedor/NF-e já resolvidos para exibir no popup. */
+  function vendasDoLote(loteId) {
+    return db.vendas
+      .filter((v) => (v.itens || []).some((it) => it.loteId === loteId))
+      .map((v) => {
+        const item = v.itens.find((it) => it.loteId === loteId);
+        const cliente = clientes.find((c) => c.id === v.clienteId);
+        const vendedor = vendedores.find((x) => x.id === v.vendedorId);
+        return {
+          vendaId: v.id,
+          data: v.data,
+          cliente: cliente?.razaoSocial || "—",
+          telefoneCliente: cliente?.telefone1 || cliente?.telefone2 || "—",
+          vendedor: vendedor ? (vendedor.apelido || vendedor.nomeCompleto) : "—",
+          quantidadeVendida: item?.qtd || 0,
+          valorVendido: (item?.qtd || 0) * (item?.precoUnit || 0),
+          condicaoPagamento: CONDICOES_PAGAMENTO.find((c) => c.value === v.condicaoPagamento)?.label || "—",
+          nfe: v.nfe,
+        };
+      })
+      .sort((a, b) => (a.data < b.data ? 1 : -1));
+  }
+
   return (
-    <CrudBlock
-      title="Lotes de Produção (com validade)"
-      subtitle="Cada lote é um cadastro separado do produto — um mesmo produto pode ter vários lotes com validades diferentes ao mesmo tempo. O saldo já desconta o que foi vendido (rastreabilidade venda ↔ lote)."
-      filialId={filialId}
-      items={lotes}
-      onChange={(items) => update((prev) => ({ ...prev, lotesProduto: mergeByFilial(prev.lotesProduto, items, filialId) }))}
-      fields={[
-        { key: "produtoId", label: "Produto", type: "select", options: produtos.map((p) => ({ value: p.id, label: p.nome })) },
-        { key: "codigo", label: "Código do lote", required: true },
-        { key: "dataProducao", label: "Data de produção", type: "date" },
-        { key: "dataValidade", label: "Data de validade", type: "date" },
-        { key: "quantidade", label: "Quantidade produzida", type: "number" },
-      ]}
-      columns={[
-        { key: "produtoId", label: "Produto", render: (r) => produtos.find((p) => p.id === r.produtoId)?.nome || "—" },
-        { key: "codigo", label: "Lote" },
-        { key: "quantidade", label: "Produzido", render: (r) => Number(r.quantidade || 0).toLocaleString("pt-BR") },
-        { key: "saldo", label: "Saldo disponível", render: (r) => saldoLote(db, r).toLocaleString("pt-BR") },
-        {
-          key: "dataValidade", label: "Validade", render: (r) => {
-            if (!r.dataValidade) return "—";
-            const dias = Math.round((new Date(r.dataValidade + "T00:00:00") - new Date(hoje + "T00:00:00")) / 86400000);
-            return <span style={{ color: corValidade(r.dataValidade), fontWeight: 700 }}>{r.dataValidade.split("-").reverse().join("/")} {dias < 0 ? "(vencido)" : `(${dias}d)`}</span>;
+    <>
+      <CrudBlock
+        title="Lotes de Produção (com validade)"
+        subtitle="Cada lote é um cadastro separado do produto — um mesmo produto pode ter vários lotes com validades diferentes ao mesmo tempo. O saldo já desconta o que foi vendido (rastreabilidade venda ↔ lote)."
+        filialId={filialId}
+        items={lotes}
+        onChange={(items) => update((prev) => ({ ...prev, lotesProduto: mergeByFilial(prev.lotesProduto, items, filialId) }))}
+        fields={[
+          { key: "produtoId", label: "Produto", type: "select", options: produtos.map((p) => ({ value: p.id, label: p.nome })) },
+          { key: "codigo", label: "Código do lote", required: true },
+          { key: "dataProducao", label: "Data de produção", type: "date" },
+          { key: "dataValidade", label: "Data de validade", type: "date" },
+          { key: "quantidade", label: "Quantidade produzida", type: "number" },
+        ]}
+        columns={[
+          { key: "produtoId", label: "Produto", render: (r) => produtos.find((p) => p.id === r.produtoId)?.nome || "—" },
+          { key: "codigo", label: "Lote" },
+          { key: "quantidade", label: "Produzido", render: (r) => Number(r.quantidade || 0).toLocaleString("pt-BR") },
+          { key: "vendido", label: "Vendido", render: (r) => vendidoDoLote(db, r.id).toLocaleString("pt-BR") },
+          { key: "saldo", label: "Saldo disponível", render: (r) => saldoLote(db, r).toLocaleString("pt-BR") },
+          {
+            key: "dataValidade", label: "Validade", render: (r) => {
+              if (!r.dataValidade) return "—";
+              const dias = Math.round((new Date(r.dataValidade + "T00:00:00") - new Date(hoje + "T00:00:00")) / 86400000);
+              return <span style={{ color: corValidade(r.dataValidade), fontWeight: 700 }}>{r.dataValidade.split("-").reverse().join("/")} {dias < 0 ? "(vencido)" : `(${dias}d)`}</span>;
+            },
           },
-        },
-      ]}
-    />
+          {
+            key: "vendas", label: "Vendas", render: (r) => (
+              <button onClick={() => setLoteVendas(r)} style={linkBtnStyle(GREEN)}>ver vendas ({vendidoDoLote(db, r.id) > 0 ? vendasDoLote(r.id).length : 0})</button>
+            ),
+          },
+        ]}
+      />
+
+      {loteVendas && (
+        <Modal title={`Vendas do lote ${loteVendas.codigo}`} travado onClose={() => setLoteVendas(null)} wide>
+          <div style={{ fontSize: 12.5, color: MUTED, marginBottom: 12 }}>
+            Produto: <b>{produtos.find((p) => p.id === loteVendas.produtoId)?.nome || "—"}</b> · Total vendido deste lote: <b>{vendidoDoLote(db, loteVendas.id).toLocaleString("pt-BR")}</b> de {Number(loteVendas.quantidade || 0).toLocaleString("pt-BR")} produzidos
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            {vendasDoLote(loteVendas.id).map((v) => (
+              <div key={v.vendaId} style={{ background: BG, border: `1px solid ${BORDER}`, borderRadius: 10, padding: 12 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                  <div>
+                    <div style={{ fontWeight: 800, color: GREEN, fontSize: 13.5 }}>{v.cliente}</div>
+                    <div style={{ fontSize: 11.5, color: MUTED }}>Tel.: {v.telefoneCliente}</div>
+                  </div>
+                  <div style={{ textAlign: "right" }}>
+                    <div style={{ fontWeight: 800, fontSize: 14, color: GREEN }}>{brl(v.valorVendido)}</div>
+                    <div style={{ fontSize: 11, color: MUTED }}>{v.data.split("-").reverse().join("/")}</div>
+                  </div>
+                </div>
+                <div style={{ height: 1, background: BORDER, margin: "8px 0" }} />
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, fontSize: 12 }}>
+                  <div><b>Vendedor:</b> {v.vendedor}</div>
+                  <div><b>Qtd. do lote vendida:</b> {v.quantidadeVendida.toLocaleString("pt-BR")}</div>
+                  <div><b>Condição de pagamento:</b> {v.condicaoPagamento}</div>
+                  <div>
+                    <b>NF-e:</b>{" "}
+                    {v.nfe ? (
+                      <span style={{ color: v.nfe.status === "cancelada" ? DANGER : SUCCESS, fontWeight: 700 }}>
+                        {v.nfe.status === "cancelada" ? "Cancelada" : "Autorizada"} — {v.nfe.chave}
+                      </span>
+                    ) : (
+                      <span style={{ color: MUTED }}>Não emitida</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ))}
+            {!vendasDoLote(loteVendas.id).length && <div style={{ textAlign: "center", color: MUTED, padding: 20, fontSize: 13 }}>Nenhuma venda vinculada a este lote ainda.</div>}
+          </div>
+          <div style={{ marginTop: 16 }}>
+            <Button onClick={() => setLoteVendas(null)}>Fechar</Button>
+          </div>
+        </Modal>
+      )}
+    </>
   );
 }
 
