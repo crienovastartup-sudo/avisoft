@@ -3448,12 +3448,26 @@ function Logistica({ db, update, filialId }) {
   const motoristas = db.motoristas.filter((m) => m.filialId === filialId);
   const veiculos = db.veiculos.filter((v) => v.filialId === filialId);
   const fretes = db.fretes.filter((f) => f.filialId === filialId);
-  const [form, setForm] = useState({ data: todayISO(), motoristaId: "", veiculoId: "", destino: "", valorFrete: "" });
+  const [form, setForm] = useState({ data: todayISO(), motoristaId: "", veiculoId: "", destino: "", valorFrete: "", cobradoCliente: "false", valorCobradoCliente: "" });
 
   function lancar(e) {
     e.preventDefault();
-    update((prev) => ({ ...prev, fretes: [...prev.fretes, { id: uid(), filialId, ...form, valorFrete: Number(form.valorFrete), statusPagamento: "pendente" }] }));
-    setForm({ data: todayISO(), motoristaId: "", veiculoId: "", destino: "", valorFrete: "" });
+    const cobrado = form.cobradoCliente === "true";
+    const valorCobrado = cobrado ? Number(form.valorCobradoCliente) || 0 : 0;
+    update((prev) => ({
+      ...prev,
+      fretes: [...prev.fretes, {
+        id: uid(), filialId, data: form.data, motoristaId: form.motoristaId, veiculoId: form.veiculoId, destino: form.destino,
+        valorFrete: Number(form.valorFrete), statusPagamento: "pendente",
+        cobradoCliente: cobrado, valorCobradoCliente: valorCobrado,
+      }],
+      // Se o frete é repassado/cobrado do cliente, isso é receita — gera uma conta a receber de verdade,
+      // separada do custo do frete (que continua sendo despesa de logística).
+      contasAvulsas: cobrado && valorCobrado > 0
+        ? [...prev.contasAvulsas, { id: uid(), filialId, tipo: "receber", descricao: `Frete cobrado do cliente — ${form.destino}`, valor: valorCobrado, vencimento: form.data, centroCustoId: "", status: "pendente" }]
+        : prev.contasAvulsas,
+    }));
+    setForm({ data: todayISO(), motoristaId: "", veiculoId: "", destino: "", valorFrete: "", cobradoCliente: "false", valorCobradoCliente: "" });
   }
 
   function atualizarStatus(f, status) {
@@ -3470,13 +3484,15 @@ function Logistica({ db, update, filialId }) {
         <CrudBlock title="Veículos" filialId={filialId} items={veiculos} onChange={(items) => update((prev) => ({ ...prev, veiculos: mergeByFilial(prev.veiculos, items, filialId) }))}
           fields={[{ key: "placa", label: "Placa", required: true }, { key: "modelo", label: "Modelo" }]} />
       </div>
-      <Card title="Lançar frete" subtitle="Gera uma conta a pagar e entra como despesa de logística na DRE.">
+      <Card title="Lançar frete" subtitle="O valor do frete é o custo da entrega (despesa de logística). Se esse custo é cobrado do cliente, marque abaixo — o valor cobrado entra como conta a receber de verdade, separado do custo.">
         <form onSubmit={lancar} style={{ display: "grid", gridTemplateColumns: gridCols(isMobile, "1fr 1fr 1fr 1fr 1fr"), gap: 10, alignItems: "end" }}>
           <Field label="Data"><TextInput type="date" value={form.data} onChange={(e) => setForm({ ...form, data: e.target.value })} /></Field>
           <Field label="Motorista"><Select options={motoristas.map((m) => ({ value: m.id, label: m.apelido || m.nomeCompleto }))} value={form.motoristaId} onChange={(e) => setForm({ ...form, motoristaId: e.target.value })} /></Field>
           <Field label="Veículo"><Select options={veiculos.map((v) => ({ value: v.id, label: v.placa }))} value={form.veiculoId} onChange={(e) => setForm({ ...form, veiculoId: e.target.value })} /></Field>
           <Field label="Destino"><TextInput value={form.destino} onChange={(e) => setForm({ ...form, destino: e.target.value })} /></Field>
-          <Field label="Valor (R$)"><TextInput type="number" step="0.01" value={form.valorFrete} onChange={(e) => setForm({ ...form, valorFrete: e.target.value })} /></Field>
+          <Field label="Custo do frete (R$)"><TextInput type="number" step="0.01" value={form.valorFrete} onChange={(e) => setForm({ ...form, valorFrete: e.target.value })} /></Field>
+          <Field label="Cobrado do cliente?"><Select options={[{ value: "false", label: "Não — custo absorvido pela granja" }, { value: "true", label: "Sim — repassado ao cliente" }]} value={form.cobradoCliente} onChange={(e) => setForm({ ...form, cobradoCliente: e.target.value })} /></Field>
+          {form.cobradoCliente === "true" && <Field label="Valor cobrado do cliente (R$)"><TextInput type="number" step="0.01" value={form.valorCobradoCliente} onChange={(e) => setForm({ ...form, valorCobradoCliente: e.target.value })} /></Field>}
           <div style={{ gridColumn: "1 / -1" }}><Button type="submit">Lançar frete</Button></div>
         </form>
       </Card>
@@ -3487,7 +3503,8 @@ function Logistica({ db, update, filialId }) {
             { key: "motoristaId", label: "Motorista", render: (r) => nomeMotorista(r.motoristaId) },
             { key: "veiculoId", label: "Veículo", render: (r) => nomeVeiculo(r.veiculoId) },
             { key: "destino", label: "Destino" },
-            { key: "valorFrete", label: "Valor", render: (r) => brl(r.valorFrete) },
+            { key: "valorFrete", label: "Custo (despesa)", render: (r) => brl(r.valorFrete) },
+            { key: "cobradoCliente", label: "Cobrado do cliente", render: (r) => (r.cobradoCliente ? <span style={{ color: SUCCESS, fontWeight: 700 }}>Sim — {brl(r.valorCobradoCliente)}</span> : <span style={{ color: MUTED }}>Não</span>) },
             { key: "statusPagamento", label: "Pagamento", render: (r) => <StatusSelect status={r.statusPagamento} onChange={(v) => atualizarStatus(r, v)} /> },
           ]}
           rows={[...fretes].sort((a, b) => (a.data < b.data ? 1 : -1))}
@@ -3552,7 +3569,7 @@ function RotasDeEntrega({ db, update, filialId }) {
   const [rota, setRota] = useState(null); // { distanciaKm, duracaoMin, coordenadas, pontos }
   const [carregando, setCarregando] = useState(false);
   const [erro, setErro] = useState("");
-  const [registro, setRegistro] = useState({ motoristaId: "", veiculoId: "", valorFrete: "" });
+  const [registro, setRegistro] = useState({ motoristaId: "", veiculoId: "", valorFrete: "", cobradoCliente: "false", valorCobradoCliente: "" });
 
   const mapRef = useRef(null);
   const mapInstance = useRef(null);
@@ -3635,17 +3652,23 @@ function RotasDeEntrega({ db, update, filialId }) {
   function registrarComoFrete() {
     if (!rota) return;
     if (!registro.motoristaId || !registro.veiculoId || !registro.valorFrete) { alert("Selecione motorista, veículo e informe o valor pra registrar o frete."); return; }
+    const cobrado = registro.cobradoCliente === "true";
+    const valorCobrado = cobrado ? Number(registro.valorCobradoCliente) || 0 : 0;
     const destinoLabel = rota.pontos[rota.pontos.length - 1].nome;
+    const destinoTexto = `${destinoLabel} — ${rota.distanciaKm.toFixed(1)} km / ${formatarDuracao(rota.duracaoMin)}`;
     update((prev) => ({
       ...prev,
       fretes: [...prev.fretes, {
         id: uid(), filialId, data: todayISO(), motoristaId: registro.motoristaId, veiculoId: registro.veiculoId,
-        destino: `${destinoLabel} — ${rota.distanciaKm.toFixed(1)} km / ${formatarDuracao(rota.duracaoMin)}`,
-        valorFrete: Number(registro.valorFrete), statusPagamento: "pendente",
+        destino: destinoTexto, valorFrete: Number(registro.valorFrete), statusPagamento: "pendente",
+        cobradoCliente: cobrado, valorCobradoCliente: valorCobrado,
       }],
+      contasAvulsas: cobrado && valorCobrado > 0
+        ? [...prev.contasAvulsas, { id: uid(), filialId, tipo: "receber", descricao: `Frete cobrado do cliente — ${destinoTexto}`, valor: valorCobrado, vencimento: todayISO(), centroCustoId: "", status: "pendente" }]
+        : prev.contasAvulsas,
     }));
-    setRegistro({ motoristaId: "", veiculoId: "", valorFrete: "" });
-    alert("Frete registrado em Logística — já entra como despesa na DRE.");
+    setRegistro({ motoristaId: "", veiculoId: "", valorFrete: "", cobradoCliente: "false", valorCobradoCliente: "" });
+    alert(cobrado ? "Frete registrado — o custo entra como despesa e o valor cobrado do cliente entra como conta a receber." : "Frete registrado em Logística — entra como despesa na DRE.");
   }
 
   return (
@@ -3708,8 +3731,12 @@ function RotasDeEntrega({ db, update, filialId }) {
               <div style={{ display: "grid", gridTemplateColumns: gridCols(isMobile, "1fr 1fr 1fr auto"), gap: 10, alignItems: "end" }}>
                 <Field label="Motorista"><Select options={motoristas.map((m) => ({ value: m.id, label: m.apelido || m.nomeCompleto }))} value={registro.motoristaId} onChange={(e) => setRegistro({ ...registro, motoristaId: e.target.value })} /></Field>
                 <Field label="Veículo"><Select options={veiculos.map((v) => ({ value: v.id, label: v.placa }))} value={registro.veiculoId} onChange={(e) => setRegistro({ ...registro, veiculoId: e.target.value })} /></Field>
-                <Field label="Valor (R$)"><TextInput type="number" step="0.01" value={registro.valorFrete} onChange={(e) => setRegistro({ ...registro, valorFrete: e.target.value })} /></Field>
+                <Field label="Custo do frete (R$)"><TextInput type="number" step="0.01" value={registro.valorFrete} onChange={(e) => setRegistro({ ...registro, valorFrete: e.target.value })} /></Field>
                 <Button onClick={registrarComoFrete}>Registrar frete</Button>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: gridCols(isMobile, "1fr 1fr"), gap: 10, alignItems: "end", marginTop: 10 }}>
+                <Field label="Cobrado do cliente?"><Select options={[{ value: "false", label: "Não — custo absorvido pela granja" }, { value: "true", label: "Sim — repassado ao cliente" }]} value={registro.cobradoCliente} onChange={(e) => setRegistro({ ...registro, cobradoCliente: e.target.value })} /></Field>
+                {registro.cobradoCliente === "true" && <Field label="Valor cobrado do cliente (R$)"><TextInput type="number" step="0.01" value={registro.valorCobradoCliente} onChange={(e) => setRegistro({ ...registro, valorCobradoCliente: e.target.value })} /></Field>}
               </div>
             </div>
           )}
