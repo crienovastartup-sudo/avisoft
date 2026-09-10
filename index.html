@@ -133,6 +133,20 @@ const emptyDB = () => ({
   lotesProduto: [],
   logsAuditoria: [],
   posicoesFrete: [],
+  inspecoesSanitarias: [],
+  controlePragas: [],
+  tarefas: [],
+  crmLeads: [],
+  crmInteracoes: [],
+  cargasGraos: [],
+  silosGraos: [],
+  escalaSeguranca: [],
+  visitantes: [],
+  programaVacinacao: [],
+  vacinacoesLote: [],
+  registrosConsumo: [],
+  manutencoesImobilizado: [],
+  contratosFornecimento: [],
 });
 
 const MODULES = [
@@ -145,6 +159,12 @@ const MODULES = [
   { key: "almoxarifado", label: "Almoxarifado", icon: "🧰" },
   { key: "imobilizado", label: "Imobilizado", icon: "🚜" },
   { key: "racao", label: "Fábrica de Ração", icon: "🌽" },
+  { key: "inspecaoSanitaria", label: "Inspeção Sanitária", icon: "🩺" },
+  { key: "controlePragas", label: "Controle de Pragas", icon: "🐀" },
+  { key: "tarefas", label: "Tarefas & Produtividade", icon: "✅" },
+  { key: "crm", label: "CRM", icon: "📇" },
+  { key: "contratos", label: "Contratos de Fornecimento", icon: "📜" },
+  { key: "segurancaVisitantes", label: "Segurança & Visitantes", icon: "🛡️" },
   { key: "compras", label: "Compras & Insumos", icon: "📥" },
   { key: "financeiro", label: "Financeiro", icon: "💵" },
   { key: "centrocusto", label: "Centro de Custo", icon: "🎯" },
@@ -307,6 +327,51 @@ function uid() {
 function brl(v) {
   const n = Number(v) || 0;
   return n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
+
+/* ---------------- curva de postura padrão por linhagem (referência) ----------------
+   Pontos aproximados de % de postura esperada por semana de idade da ave,
+   com base no formato geral das curvas divulgadas pelos principais
+   fornecedores de linhagens de poedeiras comerciais. São uma REFERÊNCIA
+   genérica para comparação — sempre que possível, substitua pelos valores
+   exatos da tabela oficial mais recente do fornecedor da sua linhagem. */
+const LINHAGENS_POSTURA = ["Lohmann Brown", "Hy-Line Brown", "Hy-Line W-36", "Dekalb White", "Isa Brown", "Outra"];
+
+const CURVA_POSTURA_PADRAO = {
+  "Lohmann Brown": { semanas: { 18: 5, 19: 20, 20: 45, 21: 65, 22: 80, 23: 88, 24: 92, 25: 94, 26: 95, 27: 95, 28: 94, 30: 93, 35: 91, 40: 89, 45: 87, 50: 85, 55: 82, 60: 79, 65: 76, 70: 73, 75: 70, 80: 66 } },
+  "Hy-Line Brown": { semanas: { 18: 5, 19: 22, 20: 50, 21: 70, 22: 83, 23: 90, 24: 93, 25: 95, 26: 95, 27: 94, 28: 94, 30: 93, 35: 91, 40: 90, 45: 88, 50: 86, 55: 83, 60: 80, 65: 77, 70: 74, 75: 70, 80: 65 } },
+  "Hy-Line W-36": { semanas: { 17: 5, 18: 25, 19: 55, 20: 75, 21: 87, 22: 92, 23: 94, 24: 95, 25: 96, 26: 96, 27: 95, 28: 95, 30: 94, 35: 92, 40: 91, 45: 89, 50: 87, 55: 85, 60: 82, 65: 79, 70: 76, 75: 72, 80: 68 } },
+  "Dekalb White": { semanas: { 17: 5, 18: 24, 19: 52, 20: 74, 21: 86, 22: 91, 23: 93, 24: 95, 25: 96, 26: 96, 27: 95, 28: 95, 30: 94, 35: 92, 40: 90, 45: 88, 50: 86, 55: 84, 60: 81, 65: 78, 70: 75, 75: 71, 80: 67 } },
+  "Isa Brown": { semanas: { 18: 6, 19: 22, 20: 47, 21: 67, 22: 81, 23: 89, 24: 92, 25: 94, 26: 95, 27: 95, 28: 94, 30: 93, 35: 91, 40: 89, 45: 87, 50: 85, 55: 82, 60: 79, 65: 76, 70: 73, 75: 69, 80: 65 } },
+};
+
+/* Interpola linearmente entre os pontos conhecidos da curva acima (a tabela
+   só guarda alguns pontos-chave por semana, não toda semana individual). */
+function posturaEsperadaPct(linhagem, semana) {
+  const curva = CURVA_POSTURA_PADRAO[linhagem];
+  if (!curva || !semana || semana < 1) return null;
+  const pontos = Object.keys(curva.semanas).map(Number).sort((a, b) => a - b);
+  if (!pontos.length) return null;
+  if (semana <= pontos[0]) return curva.semanas[pontos[0]];
+  if (semana >= pontos[pontos.length - 1]) return curva.semanas[pontos[pontos.length - 1]];
+  for (let i = 0; i < pontos.length - 1; i++) {
+    const a = pontos[i], b = pontos[i + 1];
+    if (semana >= a && semana <= b) {
+      const va = curva.semanas[a], vb = curva.semanas[b];
+      return va + (vb - va) * ((semana - a) / (b - a));
+    }
+  }
+  return null;
+}
+
+/* Idade do lote em semanas completas, a partir da data de alojamento. */
+function idadeSemanas(dataAlojamento, dataRef) {
+  if (!dataAlojamento) return null;
+  const ref = dataRef ? new Date(dataRef + "T00:00:00") : new Date();
+  const inicio = new Date(dataAlojamento + "T00:00:00");
+  const dias = Math.floor((ref - inicio) / 86400000);
+  if (dias < 0) return null;
+  return Math.floor(dias / 7);
 }
 
 /* ---------------- responsividade: celular vs. tablet/desktop ---------------- */
@@ -1634,7 +1699,7 @@ function ModuleView({ activeModule, db, update, conn, filialId, empresaId, usuar
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
           <CrudBlock
             title="Produtos & Embalagens"
-            subtitle="Ovos por tipo/calibre, caixas, cartelas e demais itens vendáveis ou de embalagem."
+            subtitle="Ovos por tipo/calibre, caixas, cartelas e demais itens vendáveis ou de embalagem. Os campos fiscais (NCM, origem, situação tributária) são obrigatórios pra emitir NF-e e gerar o SPED sem erro — preenchidos aqui, você não precisa se preocupar com eles na hora da venda."
             filialId={filialId}
             items={scoped("produtos")}
             onChange={set("produtos")}
@@ -1642,11 +1707,31 @@ function ModuleView({ activeModule, db, update, conn, filialId, empresaId, usuar
               { key: "nome", label: "Nome do produto", required: true },
               { key: "controleTipo", label: "Tipo de controle", type: "select", options: [{ value: "venda", label: "Produto para venda (ovo, etc.)" }, { value: "almoxarifado", label: "Almoxarifado (uso interno)" }, { value: "imobilizado", label: "Imobilizado (bem de uso — pode ser vendido)" }] },
               { key: "tipo", label: "Tipo", type: "select", options: [{ value: "ovo", label: "Ovo" }, { value: "embalagem", label: "Embalagem" }, { value: "outro", label: "Outro" }] },
+              { key: "classificacaoOvo", label: "Classificação do ovo (calibre/peso — só se Tipo = Ovo)", type: "select", options: [
+                { value: "", label: "— não se aplica —" },
+                { value: "jumbo", label: "Jumbo (acima de 66g)" },
+                { value: "extra", label: "Extra (61 a 66g)" },
+                { value: "grande", label: "Grande (56 a 61g)" },
+                { value: "medio", label: "Médio (51 a 56g)" },
+                { value: "pequeno", label: "Pequeno/Industrial (até 51g)" },
+              ] },
               { key: "unidade", label: "Unidade", type: "select", options: [{ value: "dz", label: "Dúzia" }, { value: "cx", label: "Caixa" }, { value: "un", label: "Unidade" }, { value: "kg", label: "Kg" }, { value: "ton", label: "Tonelada" }, { value: "l", label: "Litro" }, { value: "sc", label: "Saco" }] },
               { key: "custoUnit", label: "Custo unitário (R$)", type: "number" },
               { key: "precoVenda", label: "Preço de venda (R$)", type: "number" },
               { key: "cfop", label: "CFOP" },
               { key: "residuo", label: "É resíduo/subproduto?", type: "select", options: [{ value: "false", label: "Não" }, { value: "true", label: "Sim (ex.: esterco)" }] },
+              { key: "ncm", label: "NCM (8 dígitos — obrigatório p/ NF-e)", required: true },
+              { key: "origemMercadoria", label: "Origem da mercadoria", type: "select", options: [{ value: "0", label: "0 — Nacional" }, { value: "1", label: "1 — Estrangeira, importação direta" }, { value: "2", label: "2 — Estrangeira, adquirida no mercado interno" }] },
+              { key: "situacaoTributariaICMS", label: "Situação tributária do ICMS (CST ou CSOSN — use CST se Lucro Real/Presumido, CSOSN se Simples Nacional)", type: "select", options: [
+                { value: "cst_000", label: "CST 000 — Tributada integralmente" },
+                { value: "cst_040", label: "CST 040 — Isenta" },
+                { value: "cst_041", label: "CST 041 — Não tributada" },
+                { value: "cst_060", label: "CST 060 — ICMS cobrado por substituição tributária" },
+                { value: "csosn_102", label: "CSOSN 102 — Simples Nacional, sem crédito" },
+                { value: "csosn_400", label: "CSOSN 400 — Simples Nacional, não tributada" },
+                { value: "csosn_500", label: "CSOSN 500 — Simples Nacional, ICMS cobrado por ST" },
+              ] },
+              { key: "codigoBarras", label: "Código de barras (GTIN/EAN, opcional)" },
               { key: "foto", label: "Foto (mostrada ao cliente na Força de Vendas)", type: "file" },
             ]}
             columns={[
@@ -1659,6 +1744,12 @@ function ModuleView({ activeModule, db, update, conn, filialId, empresaId, usuar
                 },
               },
               { key: "tipo", label: "Tipo" },
+              {
+                key: "classificacaoOvo", label: "Classificação", render: (r) => {
+                  const rotulos = { jumbo: "Jumbo", extra: "Extra", grande: "Grande", medio: "Médio", pequeno: "Pequeno/Industrial" };
+                  return rotulos[r.classificacaoOvo] || "—";
+                },
+              },
               { key: "unidade", label: "Unid." },
               { key: "custoUnit", label: "Custo", render: (r) => brl(r.custoUnit) },
               { key: "precoVenda", label: "Preço", render: (r) => brl(r.precoVenda) },
@@ -1680,6 +1771,18 @@ function ModuleView({ activeModule, db, update, conn, filialId, empresaId, usuar
       return <ImobilizadoControle db={db} update={update} filialId={filialId} usuario={usuario} />;
     case "racao":
       return <FabricaRacao db={db} update={update} filialId={filialId} />;
+    case "inspecaoSanitaria":
+      return <InspecaoSanitaria db={db} update={update} filialId={filialId} />;
+    case "controlePragas":
+      return <ControlePragas db={db} update={update} filialId={filialId} />;
+    case "tarefas":
+      return <GestaoTarefas db={db} update={update} filialId={filialId} />;
+    case "crm":
+      return <ModuloCRM db={db} update={update} filialId={filialId} />;
+    case "contratos":
+      return <ContratosFornecimento db={db} update={update} filialId={filialId} />;
+    case "segurancaVisitantes":
+      return <SegurancaVisitantes db={db} update={update} filialId={filialId} />;
     case "compras":
       return <Compras db={db} update={update} filialId={filialId} />;
     case "financeiro":
@@ -2278,7 +2381,7 @@ function Vendas({ db, update, filialId }) {
   const filial = empresa?.filiais.find((f) => f.id === filialId);
   const [danfeVenda, setDanfeVenda] = useState(null);
 
-  const [form, setForm] = useState({ data: todayISO(), clienteId: "", vendedorId: "", produtoId: "", qtd: "", precoUnit: "", condicaoPagamento: "vista_pix", centroCustoId: "", modalidadeFrete: "sem_frete", enderecoEntrega: "", valorFrete: "" });
+  const [form, setForm] = useState({ data: todayISO(), clienteId: "", vendedorId: "", produtoId: "", qtd: "", precoUnit: "", condicaoPagamento: "vista_pix", centroCustoId: "", modalidadeFrete: "sem_frete", enderecoEntrega: "", valorFrete: "", tipoSaida: "venda", autorizadoPorDoacao: "", motivoDoacao: "" });
   const clienteSelecionado = clientes.find((c) => c.id === form.clienteId);
   const produtoSelecionado = produtos.find((p) => p.id === form.produtoId);
   const cfopPreview = determinarCFOP(empresa?.tipoEmpresa, filial?.uf, clienteSelecionado?.uf, ehSim(produtoSelecionado?.residuo), produtoSelecionado?.controleTipo === "imobilizado");
@@ -2296,14 +2399,15 @@ function Vendas({ db, update, filialId }) {
 
   function lancarVenda(e) {
     e.preventDefault();
+    const ehDoacao = form.tipoSaida === "doacao";
     const vendedor = vendedores.find((v) => v.id === form.vendedorId);
-    const totalProdutos = Number(form.qtd || 0) * Number(form.precoUnit || 0);
-    const freteDestacado = form.modalidadeFrete === "cif_destacado" ? Number(form.valorFrete) || 0 : 0;
+    const totalProdutos = ehDoacao ? 0 : Number(form.qtd || 0) * Number(form.precoUnit || 0);
+    const freteDestacado = !ehDoacao && form.modalidadeFrete === "cif_destacado" ? Number(form.valorFrete) || 0 : 0;
     const total = totalProdutos + freteDestacado;
-    const comissaoValor = vendedor ? total * (Number(vendedor.percentualComissao || 0) / 100) : 0;
+    const comissaoValor = ehDoacao ? 0 : vendedor ? total * (Number(vendedor.percentualComissao || 0) / 100) : 0;
     let comissaoGerenteValor = 0;
     let gerenteComercialId = null;
-    if (vendedor && vendedor.gerenteComercialId) {
+    if (!ehDoacao && vendedor && vendedor.gerenteComercialId) {
       const gerente = vendedores.find((v) => v.id === vendedor.gerenteComercialId);
       if (gerente) {
         gerenteComercialId = gerente.id;
@@ -2311,14 +2415,15 @@ function Vendas({ db, update, filialId }) {
       }
     }
     const condicao = form.condicaoPagamento || "vista_pix";
-    const parcelas = gerarParcelas(condicao, total, form.data);
+    const parcelas = ehDoacao ? [] : gerarParcelas(condicao, total, form.data);
     const cfop = determinarCFOP(empresa?.tipoEmpresa, filial?.uf, clienteSelecionado?.uf, ehSim(produtoSelecionado?.residuo), produtoSelecionado?.controleTipo === "imobilizado");
     const venda = {
       id: uid(), filialId, data: form.data, clienteId: form.clienteId, vendedorId: form.vendedorId,
-      itens: [{ produtoId: form.produtoId, qtd: Number(form.qtd), precoUnit: Number(form.precoUnit), cfop }],
+      itens: [{ produtoId: form.produtoId, qtd: Number(form.qtd), precoUnit: ehDoacao ? 0 : Number(form.precoUnit), cfop }],
       total, comissaoValor, gerenteComercialId, comissaoGerenteValor,
       condicaoPagamento: condicao, centroCustoId: form.centroCustoId || "",
       parcelas, nfe: null,
+      doacao: ehDoacao ? { ehDoacao: true, autorizadoPor: form.autorizadoPorDoacao, motivo: form.motivoDoacao } : { ehDoacao: false },
       entrega: {
         modalidadeFrete: form.modalidadeFrete,
         enderecoEntrega: form.modalidadeFrete === "sem_frete" ? "" : form.enderecoEntrega,
@@ -2329,9 +2434,9 @@ function Vendas({ db, update, filialId }) {
     update((prev) => ({
       ...prev,
       vendas: [...prev.vendas, venda],
-      movimentacoesEstoque: [...prev.movimentacoesEstoque, { id: uid(), filialId, data: form.data, produtoId: form.produtoId, tipo: "saida", qtd: Number(form.qtd), motivo: "Venda", origem: "venda:" + venda.id }],
+      movimentacoesEstoque: [...prev.movimentacoesEstoque, { id: uid(), filialId, data: form.data, produtoId: form.produtoId, tipo: "saida", qtd: Number(form.qtd), motivo: ehDoacao ? `Doação (autorizado por ${form.autorizadoPorDoacao || "—"})` : "Venda", origem: "venda:" + venda.id }],
     }));
-    setForm({ data: todayISO(), clienteId: "", vendedorId: "", produtoId: "", qtd: "", precoUnit: "", condicaoPagamento: "vista_pix", centroCustoId: "", modalidadeFrete: "sem_frete", enderecoEntrega: "", valorFrete: "" });
+    setForm({ data: todayISO(), clienteId: "", vendedorId: "", produtoId: "", qtd: "", precoUnit: "", condicaoPagamento: "vista_pix", centroCustoId: "", modalidadeFrete: "sem_frete", enderecoEntrega: "", valorFrete: "", tipoSaida: "venda", autorizadoPorDoacao: "", motivoDoacao: "" });
   }
 
   function atualizarParcela(vendaId, parcelaId, status) {
@@ -2400,30 +2505,41 @@ function Vendas({ db, update, filialId }) {
           <Field label="Preço unit. (R$)"><TextInput type="number" step="0.01" value={form.precoUnit} onChange={(e) => setForm({ ...form, precoUnit: e.target.value })} /></Field>
           <Field label="Condição de pagamento"><Select options={CONDICOES_PAGAMENTO} value={form.condicaoPagamento} onChange={(e) => setForm({ ...form, condicaoPagamento: e.target.value })} /></Field>
           <Field label="Centro de custo"><Select options={centrosCusto.map((c) => ({ value: c.id, label: c.nome }))} value={form.centroCustoId} onChange={(e) => setForm({ ...form, centroCustoId: e.target.value })} /></Field>
+          <Field label="Tipo de saída">
+            <Select options={[{ value: "venda", label: "Venda" }, { value: "doacao", label: "Doação (sem receita)" }]} value={form.tipoSaida} onChange={(e) => setForm({ ...form, tipoSaida: e.target.value })} />
+          </Field>
+          {form.tipoSaida === "doacao" && (
+            <>
+              <Field label="Autorizado por"><TextInput value={form.autorizadoPorDoacao} onChange={(e) => setForm({ ...form, autorizadoPorDoacao: e.target.value })} /></Field>
+              <Field label="Motivo da doação"><TextInput value={form.motivoDoacao} onChange={(e) => setForm({ ...form, motivoDoacao: e.target.value })} /></Field>
+            </>
+          )}
           <div>
             <div style={{ fontSize: 12.5, fontWeight: 700, color: MUTED, marginBottom: 6 }}>CFOP (automático)</div>
             <div style={{ background: BG, border: `1px solid ${BORDER}`, borderRadius: 8, padding: "8px 10px", fontSize: 13.5, fontWeight: 800, color: GREEN }}>
               {cfopPreview} {cfopPreview.startsWith("6") ? "— interestadual" : "— estadual"}
             </div>
           </div>
-          <Field label="Frete / entrega">
-            <Select
-              options={[
-                { value: "sem_frete", label: "Sem frete (cliente retira)" },
-                { value: "cif_gratis", label: "CIF — grátis, incluso no preço" },
-                { value: "cif_destacado", label: "CIF — cobrado à parte (destacado na NF-e)" },
-                { value: "fob", label: "FOB — por conta do destinatário" },
-              ]}
-              value={form.modalidadeFrete} onChange={(e) => setForm({ ...form, modalidadeFrete: e.target.value })}
-            />
-          </Field>
-          {form.modalidadeFrete !== "sem_frete" && (
+          {form.tipoSaida !== "doacao" && (
+            <Field label="Frete / entrega">
+              <Select
+                options={[
+                  { value: "sem_frete", label: "Sem frete (cliente retira)" },
+                  { value: "cif_gratis", label: "CIF — grátis, incluso no preço" },
+                  { value: "cif_destacado", label: "CIF — cobrado à parte (destacado na NF-e)" },
+                  { value: "fob", label: "FOB — por conta do destinatário" },
+                ]}
+                value={form.modalidadeFrete} onChange={(e) => setForm({ ...form, modalidadeFrete: e.target.value })}
+              />
+            </Field>
+          )}
+          {form.tipoSaida !== "doacao" && form.modalidadeFrete !== "sem_frete" && (
             <Field label="Endereço de entrega"><TextInput value={form.enderecoEntrega} onChange={(e) => setForm({ ...form, enderecoEntrega: e.target.value })} placeholder="Preenchido a partir do cliente — edite se for outro endereço" /></Field>
           )}
-          {form.modalidadeFrete === "cif_destacado" && (
+          {form.tipoSaida !== "doacao" && form.modalidadeFrete === "cif_destacado" && (
             <Field label="Valor do frete (R$)"><TextInput type="number" step="0.01" value={form.valorFrete} onChange={(e) => setForm({ ...form, valorFrete: e.target.value })} /></Field>
           )}
-          <div style={{ gridColumn: "1 / -1" }}><Button type="submit">Lançar venda</Button></div>
+          <div style={{ gridColumn: "1 / -1" }}><Button type="submit">{form.tipoSaida === "doacao" ? "Registrar doação" : "Lançar venda"}</Button></div>
         </form>
       </Card>
 
@@ -2443,7 +2559,7 @@ function Vendas({ db, update, filialId }) {
             { key: "vendedorId", label: "Vendedor", render: (r) => nomeVendedor(r.vendedorId) },
             { key: "produto", label: "Produto", render: (r) => nomeProduto(r.itens[0]?.produtoId) },
             { key: "cfop", label: "CFOP", render: (r) => r.itens[0]?.cfop || produtos.find((p) => p.id === r.itens[0]?.produtoId)?.cfop || "—" },
-            { key: "total", label: "Total", render: (r) => brl(r.total) },
+            { key: "total", label: "Total", render: (r) => (r.doacao?.ehDoacao ? <span style={{ color: GOLD, fontWeight: 700, fontSize: 11 }}>DOAÇÃO<br /><span style={{ color: MUTED, fontWeight: 400 }}>aut.: {r.doacao.autorizadoPor || "—"}</span></span> : brl(r.total)) },
             { key: "entrega", label: "Entrega", render: (r) => {
               if (!r.entrega || r.entrega.modalidadeFrete === "sem_frete") return <span style={{ fontSize: 11, color: MUTED }}>Cliente retira</span>;
               const rotulos = { cif_gratis: "CIF grátis", cif_destacado: "CIF destacado", fob: "FOB" };
@@ -2733,6 +2849,21 @@ function ImobilizadoControle({ db, update, filialId, usuario }) {
   const itensImobilizado = db.produtos.filter((p) => p.filialId === filialId && p.controleTipo === "imobilizado");
   const fornecedores = db.fornecedores.filter((f) => f.filialId === filialId);
   const movimentacoes = db.movimentacoesEstoque.filter((m) => m.filialId === filialId && itensImobilizado.some((p) => p.id === m.produtoId));
+  const manutencoes = db.manutencoesImobilizado.filter((m) => m.filialId === filialId);
+
+  /* -------- manutenção preventiva por bem (e, opcionalmente, por unidade física dentro do bem — ex.: "Exaustor 3") -------- */
+  const chaveBem = (m) => `${m.produtoId}::${m.identificacaoBem || ""}`;
+  const ultimaManutencaoPorBem = {};
+  manutencoes.forEach((m) => {
+    const chave = chaveBem(m);
+    const atual = ultimaManutencaoPorBem[chave];
+    if (!atual || m.dataRealizada > atual.dataRealizada) ultimaManutencaoPorBem[chave] = m;
+  });
+  const hojeManutencao = todayISO();
+  const manutencoesAtrasadas = Object.values(ultimaManutencaoPorBem)
+    .filter((m) => m.dataProximaPrevista && m.dataProximaPrevista < hojeManutencao)
+    .map((m) => ({ ...m, diasAtraso: Math.round((new Date(hojeManutencao + "T00:00:00") - new Date(m.dataProximaPrevista + "T00:00:00")) / 86400000) }))
+    .sort((a, b) => b.diasAtraso - a.diasAtraso);
 
   const blank = { produtoId: "", tipo: "entrada", quantidade: "1", valorAquisicao: "", origemLancamento: "avulso", numeroNota: "", fornecedorId: "", motivo: "", solicitante: "", departamento: "", autorizadoPor: "", anexos: [] };
   const [form, setForm] = useState(blank);
@@ -2857,6 +2988,46 @@ function ImobilizadoControle({ db, update, filialId, usuario }) {
           rows={[...movimentacoes].sort((a, b) => (a.data < b.data ? 1 : -1))}
         />
       </Card>
+
+      {!!manutencoesAtrasadas.length && (
+        <Card title="Manutenção preventiva atrasada" subtitle="Bens cuja próxima manutenção prevista já passou da data, considerando o último registro de manutenção de cada um.">
+          <Table
+            columns={[
+              { key: "produtoId", label: "Bem", render: (r) => itensImobilizado.find((p) => p.id === r.produtoId)?.nome || "—" },
+              { key: "identificacaoBem", label: "Identificação", render: (r) => r.identificacaoBem || "—" },
+              { key: "dataRealizada", label: "Última manutenção" },
+              { key: "dataProximaPrevista", label: "Prevista para" },
+              { key: "diasAtraso", label: "Atraso", render: (r) => <span style={{ color: DANGER, fontWeight: 700 }}>{r.diasAtraso} dia(s)</span> },
+            ]}
+            rows={manutencoesAtrasadas}
+          />
+        </Card>
+      )}
+
+      <CrudBlock
+        title="Manutenção — Esteira, Comedouro, Exaustor e demais bens" subtitle="Histórico e calendário de manutenção preventiva/corretiva por bem — se a granja tem mais de uma unidade do mesmo bem (ex.: 6 exaustores), use 'Identificação' para diferenciar (ex.: 'Exaustor 3')." filialId={filialId}
+        items={manutencoes} onChange={(items) => update((prev) => ({ ...prev, manutencoesImobilizado: mergeByFilial(prev.manutencoesImobilizado, items, filialId) }))}
+        fields={[
+          { key: "produtoId", label: "Bem", type: "select", options: itensImobilizado.map((p) => ({ value: p.id, label: p.nome })), required: true },
+          { key: "identificacaoBem", label: "Identificação (opcional — ex.: 'Esteira 2')" },
+          { key: "tipo", label: "Tipo de manutenção", type: "select", options: [{ value: "preventiva", label: "Preventiva" }, { value: "corretiva", label: "Corretiva" }] },
+          { key: "dataRealizada", label: "Data realizada", type: "date", required: true },
+          { key: "periodicidadeDias", label: "Periodicidade (dias, p/ calcular a próxima)", type: "number" },
+          { key: "dataProximaPrevista", label: "Próxima manutenção prevista", type: "date" },
+          { key: "empresaResponsavel", label: "Empresa/técnico responsável" },
+          { key: "custo", label: "Custo (R$)", type: "number" },
+          { key: "descricao", label: "Descrição do serviço" },
+        ]}
+        columns={[
+          { key: "produtoId", label: "Bem", render: (r) => itensImobilizado.find((p) => p.id === r.produtoId)?.nome || "—" },
+          { key: "identificacaoBem", label: "Identificação", render: (r) => r.identificacaoBem || "—" },
+          { key: "tipo", label: "Tipo", render: (r) => (r.tipo === "corretiva" ? "Corretiva" : "Preventiva") },
+          { key: "dataRealizada", label: "Realizada em" },
+          { key: "dataProximaPrevista", label: "Próxima prevista" },
+          { key: "empresaResponsavel", label: "Responsável" },
+          { key: "custo", label: "Custo", render: (r) => brl(r.custo) },
+        ]}
+      />
     </div>
   );
 }
@@ -3047,6 +3218,70 @@ function FabricaRacao({ db, update, filialId }) {
   const formulacoes = db.formulacoes.filter((f) => f.filialId === filialId);
   const producoes = db.producoesRacao.filter((p) => p.filialId === filialId);
   const galpoes = db.galpoes.filter((g) => g.filialId === filialId);
+  /* ---- Controle de recebimento de grãos (caminhões, pesagem, silos e alerta de preço) ---- */
+  const TIPOS_GRAO = ["Milho", "Farelo de Soja", "Farelo de Trigo", "Calcário Calcítico", "Premix/Núcleo", "Outro"];
+  const fornecedoresRacao = db.fornecedores.filter((f) => f.filialId === filialId);
+  const silos = db.silosGraos.filter((s) => s.filialId === filialId);
+  const cargas = db.cargasGraos.filter((c) => c.filialId === filialId);
+
+  const [silo, setSilo] = useState({ nome: "", tipoGrao: TIPOS_GRAO[0], capacidadeKg: "" });
+  function addSilo(e) {
+    e.preventDefault();
+    if (!silo.nome) return;
+    update((prev) => ({ ...prev, silosGraos: [...prev.silosGraos, { id: uid(), filialId, ...silo, capacidadeKg: Number(silo.capacidadeKg) || 0 }] }));
+    setSilo({ nome: "", tipoGrao: TIPOS_GRAO[0], capacidadeKg: "" });
+  }
+  function removerSilo(s) { update((prev) => ({ ...prev, silosGraos: prev.silosGraos.filter((x) => x.id !== s.id) })); }
+
+  const blankCarga = { data: todayISO(), placa: "", motorista: "", transportadora: "", tipoGrao: TIPOS_GRAO[0], fornecedorId: "", numeroNota: "", pesoBrutoKg: "", taraKg: "", umidadePercent: "", impurezaPercent: "", precoKg: "", siloDestinoId: "", observacoes: "" };
+  const [carga, setCarga] = useState(blankCarga);
+  const pesoLiquidoPreview = Math.max(0, Number(carga.pesoBrutoKg || 0) - Number(carga.taraKg || 0));
+  const valorTotalPreview = pesoLiquidoPreview * Number(carga.precoKg || 0);
+
+  function registrarCarga(e) {
+    e.preventDefault();
+    if (!carga.placa || !Number(carga.pesoBrutoKg)) return;
+    const pesoLiquidoKg = Math.max(0, Number(carga.pesoBrutoKg) - Number(carga.taraKg || 0));
+    const valorTotal = pesoLiquidoKg * Number(carga.precoKg || 0);
+    update((prev) => ({ ...prev, cargasGraos: [...prev.cargasGraos, { id: uid(), filialId, ...carga, pesoBrutoKg: Number(carga.pesoBrutoKg), taraKg: Number(carga.taraKg || 0), pesoLiquidoKg, umidadePercent: Number(carga.umidadePercent || 0), impurezaPercent: Number(carga.impurezaPercent || 0), precoKg: Number(carga.precoKg || 0), valorTotal }] }));
+    setCarga(blankCarga);
+  }
+  function removerCarga(c) { update((prev) => ({ ...prev, cargasGraos: prev.cargasGraos.filter((x) => x.id !== c.id) })); }
+
+  // consumo estimado por tipo de grão: casa o nome do ingrediente da formulação usada em cada
+  // produção de ração com o tipo de grão (ex.: ingrediente "Milho" cai no tipo "Milho")
+  function consumoEstimadoPorTipo(tipo) {
+    const palavraChave = tipo.split("/")[0].split(" ")[0].toLowerCase();
+    return producoes.reduce((soma, p) => {
+      const formula = formulacoes.find((f) => f.id === p.formulacaoId);
+      if (!formula) return soma;
+      const ingrediente = formula.ingredientes.find((i) => (i.nome || "").toLowerCase().includes(palavraChave));
+      if (!ingrediente) return soma;
+      return soma + Number(p.qtdKg || 0) * (Number(ingrediente.percentual || 0) / 100);
+    }, 0);
+  }
+  const diasComProducao = new Set(producoes.map((p) => p.data)).size || 1;
+
+  const resumoGraos = TIPOS_GRAO.map((tipo) => {
+    const recebidoKg = cargas.filter((c) => c.tipoGrao === tipo).reduce((s, c) => s + Number(c.pesoLiquidoKg || 0), 0);
+    const consumidoKg = consumoEstimadoPorTipo(tipo);
+    const saldoKg = recebidoKg - consumidoKg;
+    const capacidadeSilos = silos.filter((s) => s.tipoGrao === tipo).reduce((s, x) => s + Number(x.capacidadeKg || 0), 0);
+    const consumoMedioDiario = consumidoKg / diasComProducao;
+    const coberturaDias = consumoMedioDiario > 0 ? saldoKg / consumoMedioDiario : null;
+    const cargasDoTipo = cargas.filter((c) => c.tipoGrao === tipo && c.precoKg > 0).sort((a, b) => (a.data < b.data ? -1 : 1));
+    const precoMedio = cargasDoTipo.length ? cargasDoTipo.reduce((s, c) => s + c.precoKg, 0) / cargasDoTipo.length : null;
+    const precoUltimo = cargasDoTipo.length ? cargasDoTipo[cargasDoTipo.length - 1].precoKg : null;
+    let alertaPreco = null;
+    if (precoMedio && precoUltimo) {
+      const variacao = (precoUltimo - precoMedio) / precoMedio;
+      if (variacao >= 0.05) alertaPreco = { tipo: "alta", variacao };
+      else if (variacao <= -0.05) alertaPreco = { tipo: "baixa", variacao };
+    }
+    return { tipo, recebidoKg, consumidoKg, saldoKg, capacidadeSilos, coberturaDias, precoMedio, precoUltimo, alertaPreco };
+  }).filter((r) => r.recebidoKg > 0 || r.capacidadeSilos > 0);
+
+  const alertasAtivos = resumoGraos.filter((r) => r.alertaPreco);
 
   const [ingredientes, setIngredientes] = useState([{ nome: "", percentual: "", custoKg: "" }]);
   const [nomeFormula, setNomeFormula] = useState("");
@@ -3084,6 +3319,97 @@ function FabricaRacao({ db, update, filialId }) {
           <StatCard label="Farelo de soja — tonelada" value="R$ 1.900" accent={GREEN} />
         </div>
         <div style={{ fontSize: 10.5, color: MUTED, marginTop: 8 }}>Fonte: CEPEA/Esalq e Portal DBO, cotações de agosto de 2026. Valores de referência — não são atualizados automaticamente pelo sistema.</div>
+      </Card>
+
+      {!!alertasAtivos.length && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {alertasAtivos.map((a) => (
+            <div key={a.tipo} style={{ background: a.alertaPreco.tipo === "alta" ? "#FCEEE9" : "#EAF3EC", border: `1px solid ${a.alertaPreco.tipo === "alta" ? DANGER : SUCCESS}55`, borderRadius: 10, padding: "10px 14px", fontSize: 12.5, color: a.alertaPreco.tipo === "alta" ? DANGER : SUCCESS, fontWeight: 700 }}>
+              {a.alertaPreco.tipo === "alta" ? "⚠ " : "💡 "}
+              {a.tipo}: preço da última carga está {Math.abs(a.alertaPreco.variacao * 100).toFixed(1)}% {a.alertaPreco.tipo === "alta" ? "acima" : "abaixo"} da média histórica — avise o setor de compras{a.alertaPreco.tipo === "alta" ? " antes de fechar o próximo lote." : ", pode ser um bom momento pra comprar mais."}
+            </div>
+          ))}
+        </div>
+      )}
+
+      <Card title="Silos / capacidade de armazenamento" subtitle="Cadastre a capacidade de cada silo por tipo de grão — dá a visão de quanto ainda cabe e quantos dias de cobertura o estoque atual aguenta.">
+        <form onSubmit={addSilo} style={{ display: "grid", gridTemplateColumns: gridCols(isMobile, "1fr 1fr 1fr auto"), gap: 10, alignItems: "end", marginBottom: 14 }}>
+          <Field label="Nome do silo"><TextInput value={silo.nome} onChange={(e) => setSilo({ ...silo, nome: e.target.value })} /></Field>
+          <Field label="Tipo de grão"><Select options={TIPOS_GRAO.map((t) => ({ value: t, label: t }))} value={silo.tipoGrao} onChange={(e) => setSilo({ ...silo, tipoGrao: e.target.value })} /></Field>
+          <Field label="Capacidade (kg)"><TextInput type="number" value={silo.capacidadeKg} onChange={(e) => setSilo({ ...silo, capacidadeKg: e.target.value })} /></Field>
+          <Button type="submit">Adicionar silo</Button>
+        </form>
+        <Table columns={[{ key: "nome", label: "Silo" }, { key: "tipoGrao", label: "Grão" }, { key: "capacidadeKg", label: "Capacidade", render: (r) => `${Number(r.capacidadeKg).toLocaleString("pt-BR")} kg` }]} rows={silos} onDelete={removerSilo} />
+      </Card>
+
+      {!!resumoGraos.length && (
+        <Card title="Visão de estoque de grãos (entre safras)" subtitle="Recebido − consumo estimado pela formulação = saldo. Cobertura estima quantos dias o saldo atual aguenta, no ritmo de consumo médio.">
+          <Table
+            columns={[
+              { key: "tipo", label: "Grão" },
+              { key: "recebidoKg", label: "Recebido (total)", render: (r) => `${r.recebidoKg.toLocaleString("pt-BR")} kg` },
+              { key: "consumidoKg", label: "Consumido (estimado)", render: (r) => `${Math.round(r.consumidoKg).toLocaleString("pt-BR")} kg` },
+              { key: "saldoKg", label: "Saldo atual", render: (r) => <span style={{ fontWeight: 700, color: r.saldoKg < 0 ? DANGER : INK }}>{Math.round(r.saldoKg).toLocaleString("pt-BR")} kg</span> },
+              { key: "capacidadeSilos", label: "Capacidade dos silos", render: (r) => `${r.capacidadeSilos.toLocaleString("pt-BR")} kg` },
+              { key: "coberturaDias", label: "Cobertura estimada", render: (r) => (r.coberturaDias == null ? "—" : <span style={{ color: r.coberturaDias < 7 ? DANGER : r.coberturaDias < 15 ? GOLD : SUCCESS, fontWeight: 700 }}>{Math.round(r.coberturaDias)} dias</span>) },
+              { key: "precoUltimo", label: "Preço última carga", render: (r) => (r.precoUltimo == null ? "—" : `${brl(r.precoUltimo)}/kg`) },
+            ]}
+            rows={resumoGraos}
+          />
+        </Card>
+      )}
+
+      <Card title="Registrar chegada de caminhão (recebimento de grãos)" subtitle="Pesagem bruta/tara/líquida, umidade e impureza pra controle de qualidade, e preço pago — alimenta o alerta de variação de preço acima.">
+        <form onSubmit={registrarCarga} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          <div style={{ display: "grid", gridTemplateColumns: gridCols(isMobile, "1fr 1fr 1fr"), gap: 10 }}>
+            <Field label="Data"><TextInput type="date" value={carga.data} onChange={(e) => setCarga({ ...carga, data: e.target.value })} /></Field>
+            <Field label="Placa do caminhão"><TextInput value={carga.placa} onChange={(e) => setCarga({ ...carga, placa: e.target.value })} /></Field>
+            <Field label="Motorista"><TextInput value={carga.motorista} onChange={(e) => setCarga({ ...carga, motorista: e.target.value })} /></Field>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: gridCols(isMobile, "1fr 1fr 1fr"), gap: 10 }}>
+            <Field label="Transportadora"><TextInput value={carga.transportadora} onChange={(e) => setCarga({ ...carga, transportadora: e.target.value })} /></Field>
+            <Field label="Tipo de grão"><Select options={TIPOS_GRAO.map((t) => ({ value: t, label: t }))} value={carga.tipoGrao} onChange={(e) => setCarga({ ...carga, tipoGrao: e.target.value })} /></Field>
+            <Field label="Fornecedor"><Select options={fornecedoresRacao.map((f) => ({ value: f.id, label: f.razaoSocial }))} value={carga.fornecedorId} onChange={(e) => setCarga({ ...carga, fornecedorId: e.target.value })} /></Field>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: gridCols(isMobile, "1fr 1fr 1fr"), gap: 10 }}>
+            <Field label="Número da nota fiscal"><TextInput value={carga.numeroNota} onChange={(e) => setCarga({ ...carga, numeroNota: e.target.value })} /></Field>
+            <Field label="Silo de destino"><Select options={silos.map((s) => ({ value: s.id, label: s.nome }))} value={carga.siloDestinoId} onChange={(e) => setCarga({ ...carga, siloDestinoId: e.target.value })} /></Field>
+            <Field label="Preço pago (R$/kg)"><TextInput type="number" step="0.001" value={carga.precoKg} onChange={(e) => setCarga({ ...carga, precoKg: e.target.value })} /></Field>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: gridCols(isMobile, "1fr 1fr 1fr 1fr"), gap: 10 }}>
+            <Field label="Peso bruto (kg)"><TextInput type="number" value={carga.pesoBrutoKg} onChange={(e) => setCarga({ ...carga, pesoBrutoKg: e.target.value })} /></Field>
+            <Field label="Tara (kg)"><TextInput type="number" value={carga.taraKg} onChange={(e) => setCarga({ ...carga, taraKg: e.target.value })} /></Field>
+            <Field label="Umidade (%)"><TextInput type="number" step="0.1" value={carga.umidadePercent} onChange={(e) => setCarga({ ...carga, umidadePercent: e.target.value })} /></Field>
+            <Field label="Impureza (%)"><TextInput type="number" step="0.1" value={carga.impurezaPercent} onChange={(e) => setCarga({ ...carga, impurezaPercent: e.target.value })} /></Field>
+          </div>
+          <div style={{ background: BG, border: `1px solid ${BORDER}`, borderRadius: 8, padding: "10px 14px", display: "flex", justifyContent: "space-between" }}>
+            <span style={{ fontSize: 12.5, color: MUTED, fontWeight: 700 }}>Peso líquido / valor total</span>
+            <span style={{ fontSize: 14, fontWeight: 800, color: GREEN }}>{pesoLiquidoPreview.toLocaleString("pt-BR")} kg — {brl(valorTotalPreview)}</span>
+          </div>
+          <Field label="Observações"><TextInput value={carga.observacoes} onChange={(e) => setCarga({ ...carga, observacoes: e.target.value })} /></Field>
+          <div><Button type="submit">Registrar chegada</Button></div>
+        </form>
+      </Card>
+
+      <Card title={`Cargas recebidas (${cargas.length})`}>
+        <FilterableTable
+          searchPlaceholder="Buscar por placa, motorista, transportadora ou fornecedor…"
+          searchFields={["placa", "motorista", "transportadora", "tipoGrao", (r) => fornecedoresRacao.find((f) => f.id === r.fornecedorId)?.razaoSocial]}
+          dateField="data"
+          emptyText="Nenhuma carga de grãos registrada ainda."
+          onDelete={removerCarga}
+          columns={[
+            { key: "data", label: "Data" },
+            { key: "placa", label: "Placa", render: (r) => <span>{r.placa}<br /><span style={{ fontSize: 10.5, color: MUTED }}>{r.motorista}</span></span> },
+            { key: "tipoGrao", label: "Grão" },
+            { key: "fornecedorId", label: "Fornecedor", render: (r) => fornecedoresRacao.find((f) => f.id === r.fornecedorId)?.razaoSocial || "—" },
+            { key: "pesoLiquidoKg", label: "Peso líquido", render: (r) => `${Number(r.pesoLiquidoKg || 0).toLocaleString("pt-BR")} kg` },
+            { key: "qualidade", label: "Umidade/Impureza", render: (r) => `${r.umidadePercent || 0}% / ${r.impurezaPercent || 0}%` },
+            { key: "valorTotal", label: "Valor", render: (r) => brl(r.valorTotal) },
+            { key: "siloDestinoId", label: "Silo", render: (r) => silos.find((s) => s.id === r.siloDestinoId)?.nome || "—" },
+          ]}
+          rows={[...cargas].sort((a, b) => (a.data < b.data ? 1 : -1))}
+        />
       </Card>
 
       <Card title="Nova formulação" subtitle="Cadastre os ingredientes e o percentual de cada um na mistura.">
@@ -4836,6 +5162,97 @@ function ProducaoAvicola({ db, update, filialId }) {
     .filter((l) => l.diasRestantes <= tempoCriaRecria + 30)
     .sort((a, b) => a.diasRestantes - b.diasRestantes);
 
+  /* -------- vacinação por lote -------- */
+  const programaVacinacao = db.programaVacinacao.filter((p) => p.filialId === filialId);
+  const vacinacoesLote = db.vacinacoesLote.filter((v) => v.filialId === filialId);
+  const lotesAtivos = lotes.filter((l) => quantidadeAtual(l) > 0);
+  const vacinasPendentes = [];
+  lotesAtivos.forEach((l) => {
+    const idadeAtual = idadeSemanas(l.dataAlojamento);
+    if (idadeAtual === null) return;
+    programaVacinacao.forEach((prog) => {
+      const idadeProg = Number(prog.idadeSemanas || 0);
+      if (idadeProg > idadeAtual) return; // ainda não chegou a idade da vacina
+      const aplicada = vacinacoesLote.some((v) => v.loteId === l.id && v.vacina === prog.vacina);
+      if (!aplicada) {
+        vacinasPendentes.push({
+          id: `${l.id}::${prog.id}`, loteId: l.id, codigoLote: l.codigo, vacina: prog.vacina,
+          viaAplicacao: prog.viaAplicacao, idadeRecomendada: idadeProg, idadeAtual, atraso: idadeAtual - idadeProg,
+        });
+      }
+    });
+  });
+  vacinasPendentes.sort((a, b) => b.atraso - a.atraso);
+
+  /* -------- curva de postura real vs. padrão da linhagem -------- */
+  const ha7dias = new Date(new Date(hoje + "T00:00:00").getTime() - 7 * 86400000).toISOString().slice(0, 10);
+  const ha14dias = new Date(new Date(hoje + "T00:00:00").getTime() - 14 * 86400000).toISOString().slice(0, 10);
+  const comparativoPostura = lotes
+    .filter((l) => l.fase === "postura" && l.linhagem && CURVA_POSTURA_PADRAO[l.linhagem])
+    .map((l) => {
+      const semana = idadeSemanas(l.dataAlojamento);
+      const esperado = posturaEsperadaPct(l.linhagem, semana);
+      const posturasLote = posturas.filter((p) => p.loteId === l.id && p.data >= ha7dias);
+      const ovos7 = posturasLote.reduce((s, p) => s + Number(p.ovosProduzidos || 0), 0);
+      const aves = quantidadeAtual(l);
+      const real = aves > 0 && posturasLote.length > 0 ? (ovos7 / (aves * posturasLote.length)) * 100 : null;
+      const desvio = real !== null && esperado !== null ? real - esperado : null;
+      return { ...l, semana, esperado, real, desvio };
+    });
+
+  /* -------- consumo de ração/água por lote — alimenta conversão alimentar e alerta água:ração -------- */
+  const consumos = db.registrosConsumo.filter((c) => c.filialId === filialId);
+  const fcrPorLote = lotes
+    .filter((l) => l.fase === "postura")
+    .map((l) => {
+      const racao30 = consumos.filter((c) => c.loteId === l.id && c.data >= ha30dias).reduce((s, c) => s + Number(c.racaoKg || 0), 0);
+      const ovos30lote = posturas.filter((p) => p.loteId === l.id && p.data >= ha30dias).reduce((s, p) => s + Number(p.ovosProduzidos || 0), 0);
+      const duzias30 = ovos30lote / 12;
+      const fcr = duzias30 > 0 ? racao30 / duzias30 : null;
+      return { ...l, racao30, duzias30, fcr };
+    });
+  const racao30Geral = fcrPorLote.reduce((s, l) => s + l.racao30, 0);
+  const duzias30Geral = fcrPorLote.reduce((s, l) => s + l.duzias30, 0);
+  const fcrGeral = duzias30Geral > 0 ? racao30Geral / duzias30Geral : null;
+
+  const mediaRatioAguaRacao = (registros) => {
+    const validos = registros.filter((c) => Number(c.racaoKg) > 0);
+    if (!validos.length) return null;
+    const soma = validos.reduce((s, c) => s + Number(c.aguaLitros || 0) / Number(c.racaoKg), 0);
+    return soma / validos.length;
+  };
+  const alertasAguaRacao = lotes
+    .filter((l) => l.fase === "postura")
+    .map((l) => {
+      const registrosLote = consumos.filter((c) => c.loteId === l.id);
+      const ratioRecente = mediaRatioAguaRacao(registrosLote.filter((c) => c.data >= ha7dias));
+      const ratioAnterior = mediaRatioAguaRacao(registrosLote.filter((c) => c.data < ha7dias && c.data >= ha14dias));
+      const variacaoPct = ratioRecente !== null && ratioAnterior ? ((ratioRecente - ratioAnterior) / ratioAnterior) * 100 : null;
+      return { ...l, ratioRecente, ratioAnterior, variacaoPct };
+    })
+    .filter((l) => l.variacaoPct !== null && Math.abs(l.variacaoPct) >= 15)
+    .sort((a, b) => Math.abs(b.variacaoPct) - Math.abs(a.variacaoPct));
+
+  /* -------- classificação de ovos por calibre (últimos 30 dias) -------- */
+  const produtosOvoClassificados = db.produtos.filter((p) => p.filialId === filialId && p.classificacaoOvo);
+  const posturas30dias = posturas.filter((p) => p.data >= ha30dias);
+  const CLASSIFICACOES_OVO = [
+    { key: "ovosJumbo", value: "jumbo", label: "Jumbo" },
+    { key: "ovosExtra", value: "extra", label: "Extra" },
+    { key: "ovosGrande", value: "grande", label: "Grande" },
+    { key: "ovosMedio", value: "medio", label: "Médio" },
+    { key: "ovosPequeno", value: "pequeno", label: "Pequeno/Industrial" },
+  ];
+  const totalClassificado30dias = CLASSIFICACOES_OVO.reduce((s, c) => s + posturas30dias.reduce((s2, p) => s2 + Number(p[c.key] || 0), 0), 0);
+  const classificacaoOvos30dias = CLASSIFICACOES_OVO.map((c) => {
+    const quantidade = posturas30dias.reduce((s, p) => s + Number(p[c.key] || 0), 0);
+    const pct = totalClassificado30dias > 0 ? (quantidade / totalClassificado30dias) * 100 : null;
+    const produto = produtosOvoClassificados.find((p) => p.classificacaoOvo === c.value);
+    const precoUnit = produto ? Number(produto.precoVenda || 0) : null;
+    const receitaPotencial = precoUnit !== null ? (quantidade / 12) * precoUnit : null;
+    return { ...c, quantidade, pct, precoUnit, receitaPotencial };
+  });
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
@@ -4845,6 +5262,9 @@ function ProducaoAvicola({ db, update, filialId }) {
         <StatCard label="Taxa de quebra (30 dias)" value={`${taxaQuebra.toFixed(1)}%`} accent={DANGER} />
         <StatCard label="Aves mortas (30 dias)" value={mortes30dias.toLocaleString("pt-BR")} accent={DANGER} />
         <StatCard label="Custo de ração por ave" value={brl(custoPorAve)} accent={MUTED} />
+        <StatCard label="Conversão alimentar (kg ração/dúzia, 30d)" value={fcrGeral !== null ? `${fcrGeral.toFixed(2)} kg/dz` : "—"} accent={MUTED} />
+        <StatCard label="Vacinas pendentes/atrasadas" value={String(vacinasPendentes.length)} accent={vacinasPendentes.length ? DANGER : GREEN} />
+        <StatCard label="Alertas água:ração" value={String(alertasAguaRacao.length)} accent={alertasAguaRacao.length ? DANGER : GREEN} />
         <StatCard label="Esterco armazenado" value={`${estercoArmazenado.toFixed(1)} ton`} accent={GREEN} />
         <StatCard label="Esterco vendido (total)" value={`${estercoVendidoTon.toFixed(1)} ton · ${brl(estercoVendidoValor)}`} accent={GOLD} />
       </div>
@@ -4868,9 +5288,20 @@ function ProducaoAvicola({ db, update, filialId }) {
       )}
 
       <CrudBlock
-        title="Galpões" subtitle="Estrutura física para alojamento dos lotes." filialId={filialId}
+        title="Galpões" subtitle="Estrutura física para alojamento dos lotes. Os limiares de temperatura/umidade alimentam o alerta de estresse térmico em Sensores/IoT." filialId={filialId}
         items={galpoes} onChange={(items) => update((prev) => ({ ...prev, galpoes: mergeByFilial(prev.galpoes, items, filialId) }))}
-        fields={[{ key: "nome", label: "Nome", required: true }, { key: "capacidade", label: "Capacidade (aves)", type: "number" }]}
+        fields={[
+          { key: "nome", label: "Nome", required: true },
+          { key: "capacidade", label: "Capacidade (aves)", type: "number" },
+          { key: "tempMaxC", label: "Temp. máx. confortável (°C)", type: "number" },
+          { key: "umidadeMaxPct", label: "Umidade máx. confortável (%)", type: "number" },
+        ]}
+        columns={[
+          { key: "nome", label: "Nome" },
+          { key: "capacidade", label: "Capacidade", render: (r) => Number(r.capacidade || 0).toLocaleString("pt-BR") },
+          { key: "tempMaxC", label: "Temp. máx.", render: (r) => (r.tempMaxC ? `${r.tempMaxC} °C` : "—") },
+          { key: "umidadeMaxPct", label: "Umid. máx.", render: (r) => (r.umidadeMaxPct ? `${r.umidadeMaxPct}%` : "—") },
+        ]}
       />
 
       <CrudBlock
@@ -4879,21 +5310,36 @@ function ProducaoAvicola({ db, update, filialId }) {
         fields={[
           { key: "codigo", label: "Código do lote", required: true },
           { key: "galpaoId", label: "Galpão", type: "select", options: galpoes.map((g) => ({ value: g.id, label: g.nome })) },
-          { key: "linhagem", label: "Linhagem" },
+          { key: "linhagem", label: "Linhagem", type: "select", options: LINHAGENS_POSTURA.map((l) => ({ value: l, label: l })) },
           { key: "dataAlojamento", label: "Data de alojamento", type: "date" },
           { key: "quantidadeAlojada", label: "Quantidade alojada", type: "number" },
           { key: "fase", label: "Fase atual", type: "select", options: [{ value: "cria", label: "Cria" }, { value: "recria", label: "Recria" }, { value: "postura", label: "Postura" }, { value: "descarte", label: "Descarte/Abate" }] },
           { key: "proximaFase", label: "Próxima fase", type: "select", options: [{ value: "recria", label: "Recria" }, { value: "postura", label: "Postura" }, { value: "descarte", label: "Descarte/Abate" }] },
           { key: "dataProximaFase", label: "Data prevista da próxima fase", type: "date" },
+          { key: "certificacaoBemEstar", label: "Certificação de bem-estar animal", type: "select", options: [
+            { value: "", label: "Nenhuma" },
+            { value: "cage_free", label: "Cage-free" },
+            { value: "free_range", label: "Free-range (livre acesso à área externa)" },
+            { value: "organico", label: "Orgânico" },
+          ] },
+          { key: "orgaoCertificador", label: "Órgão certificador (se houver certificação)" },
+          { key: "validadeCertificacao", label: "Validade da certificação", type: "date" },
         ]}
         columns={[
           { key: "codigo", label: "Lote" },
           { key: "galpaoId", label: "Galpão", render: (r) => galpoes.find((g) => g.id === r.galpaoId)?.nome || "—" },
+          { key: "linhagem", label: "Linhagem" },
           { key: "fase", label: "Fase atual" },
           { key: "quantidadeAlojada", label: "Alojada", render: (r) => Number(r.quantidadeAlojada || 0).toLocaleString("pt-BR") },
           { key: "quantidadeAtual", label: "Atual (viva)", render: (r) => quantidadeAtual(r).toLocaleString("pt-BR") },
           { key: "proximaFase", label: "Próxima fase" },
           { key: "dataProximaFase", label: "Data prevista" },
+          {
+            key: "certificacaoBemEstar", label: "Certificação", render: (r) => {
+              const rotulos = { cage_free: "Cage-free", free_range: "Free-range", organico: "Orgânico" };
+              return rotulos[r.certificacaoBemEstar] || "—";
+            },
+          },
         ]}
       />
 
@@ -4965,13 +5411,18 @@ function ProducaoAvicola({ db, update, filialId }) {
       />
 
       <CrudBlock
-        title="Postura e quebras" subtitle="Produção diária ou por período, por lote." filialId={filialId}
+        title="Postura e quebras" subtitle="Produção diária ou por período, por lote. A classificação por calibre (opcional) alimenta o card 'Classificação de ovos' mais abaixo — some com a quantidade produzida, não precisa fechar 100% se ainda não pesa todo o lote." filialId={filialId}
         items={posturas} onChange={(items) => update((prev) => ({ ...prev, registrosPostura: mergeByFilial(prev.registrosPostura, items, filialId) }))}
         fields={[
           { key: "data", label: "Data", type: "date", required: true },
           { key: "loteId", label: "Lote", type: "select", options: lotes.map((l) => ({ value: l.id, label: l.codigo })) },
           { key: "ovosProduzidos", label: "Ovos produzidos", type: "number" },
           { key: "ovosQuebrados", label: "Ovos quebrados", type: "number" },
+          { key: "ovosJumbo", label: "Classificados — Jumbo (opcional)", type: "number" },
+          { key: "ovosExtra", label: "Classificados — Extra (opcional)", type: "number" },
+          { key: "ovosGrande", label: "Classificados — Grande (opcional)", type: "number" },
+          { key: "ovosMedio", label: "Classificados — Médio (opcional)", type: "number" },
+          { key: "ovosPequeno", label: "Classificados — Pequeno/Industrial (opcional)", type: "number" },
         ]}
         columns={[
           { key: "data", label: "Data" },
@@ -4981,20 +5432,48 @@ function ProducaoAvicola({ db, update, filialId }) {
         ]}
       />
 
+      <Card title="Classificação de ovos por calibre — últimos 30 dias" subtitle="Distribuição do que foi classificado nos lançamentos de Postura e quebras acima, e a receita potencial usando o preço cadastrado em Produtos para cada calibre.">
+        <Table
+          columns={[
+            { key: "label", label: "Classificação" },
+            { key: "quantidade", label: "Quantidade (30d)", render: (r) => Number(r.quantidade || 0).toLocaleString("pt-BR") },
+            { key: "pct", label: "% do classificado", render: (r) => (r.pct === null ? "—" : `${r.pct.toFixed(1)}%`) },
+            { key: "precoUnit", label: "Preço cadastrado (dúzia)", render: (r) => (r.precoUnit ? brl(r.precoUnit) : "—") },
+            { key: "receitaPotencial", label: "Receita potencial (30d)", render: (r) => (r.receitaPotencial !== null ? brl(r.receitaPotencial) : "—") },
+          ]}
+          rows={classificacaoOvos30dias}
+          emptyText="Nenhum ovo classificado por calibre ainda nos últimos 30 dias."
+        />
+      </Card>
+
       <CrudBlock
-        title="Mortalidade" subtitle="Aves mortas por período e por lote." filialId={filialId}
+        title="Mortalidade" subtitle="Aves mortas por período e por lote. O destino da carcaça é exigência ambiental (CONAMA) — registre aqui para ter esse dado em caso de fiscalização." filialId={filialId}
         items={mortalidades} onChange={(items) => update((prev) => ({ ...prev, registrosMortalidade: mergeByFilial(prev.registrosMortalidade, items, filialId) }))}
         fields={[
           { key: "data", label: "Data", type: "date", required: true },
           { key: "loteId", label: "Lote", type: "select", options: lotes.map((l) => ({ value: l.id, label: l.codigo })) },
           { key: "avesMortas", label: "Aves mortas", type: "number" },
           { key: "motivo", label: "Motivo" },
+          { key: "destino", label: "Destino da carcaça", type: "select", options: [
+            { value: "compostagem", label: "Compostagem" },
+            { value: "incineracao", label: "Incineração" },
+            { value: "aterro_licenciado", label: "Aterro/vala licenciada" },
+            { value: "outro", label: "Outro" },
+          ] },
+          { key: "localDestino", label: "Local/unidade de destino" },
+          { key: "responsavelDestino", label: "Responsável pelo destino" },
         ]}
         columns={[
           { key: "data", label: "Data" },
           { key: "loteId", label: "Lote", render: (r) => lotes.find((l) => l.id === r.loteId)?.codigo || "—" },
           { key: "avesMortas", label: "Aves mortas", render: (r) => Number(r.avesMortas || 0).toLocaleString("pt-BR") },
           { key: "motivo", label: "Motivo" },
+          {
+            key: "destino", label: "Destino", render: (r) => {
+              const rotulos = { compostagem: "Compostagem", incineracao: "Incineração", aterro_licenciado: "Aterro licenciado", outro: "Outro" };
+              return rotulos[r.destino] || "—";
+            },
+          },
         ]}
       />
 
@@ -5049,6 +5528,165 @@ function ProducaoAvicola({ db, update, filialId }) {
           { key: "cfopManual", label: "CFOP", render: (r) => (r.tipo === "venda" ? (r.cfopManual || "automático") : "—") },
         ]}
       />
+
+      <Card title="Curva de postura — real vs. padrão da linhagem" subtitle="Compara a % de postura real dos últimos 7 dias (ovos produzidos ÷ aves vivas ÷ dias registrados) com o valor esperado para a idade do lote, segundo a curva de referência da linhagem cadastrada. Só aparece para lotes em postura com linhagem reconhecida.">
+        <Table
+          columns={[
+            { key: "codigo", label: "Lote" },
+            { key: "linhagem", label: "Linhagem" },
+            { key: "semana", label: "Idade (semanas)", render: (r) => (r.semana ?? "—") },
+            { key: "real", label: "Postura real (7d)", render: (r) => (r.real === null ? "—" : `${r.real.toFixed(1)}%`) },
+            { key: "esperado", label: "Postura esperada", render: (r) => (r.esperado === null ? "—" : `${r.esperado.toFixed(1)}%`) },
+            {
+              key: "desvio", label: "Desvio", render: (r) => {
+                if (r.desvio === null) return "—";
+                const cor = r.desvio <= -10 ? DANGER : r.desvio < 0 ? GOLD : SUCCESS;
+                return <span style={{ color: cor, fontWeight: 700 }}>{r.desvio >= 0 ? "+" : ""}{r.desvio.toFixed(1)} p.p.</span>;
+              },
+            },
+          ]}
+          rows={comparativoPostura}
+          emptyText="Nenhum lote em postura com linhagem reconhecida cadastrada — selecione a linhagem no cadastro do lote acima."
+        />
+        <div style={{ fontSize: 11, color: MUTED, marginTop: 10 }}>Curva de referência genérica (aproximada) por linhagem — ajuste os pontos em <code>CURVA_POSTURA_PADRAO</code> no código-fonte caso tenha a tabela oficial exata do seu fornecedor de linhagem.</div>
+      </Card>
+
+      <Card title="Conversão alimentar (kg de ração por dúzia de ovos)" subtitle="Últimos 30 dias, por lote em postura — o indicador mais importante de custo de produção.">
+        <Table
+          columns={[
+            { key: "codigo", label: "Lote" },
+            { key: "racao30", label: "Ração consumida (30d)", render: (r) => `${Number(r.racao30 || 0).toLocaleString("pt-BR")} kg` },
+            { key: "duzias30", label: "Dúzias produzidas (30d)", render: (r) => Number(r.duzias30 || 0).toLocaleString("pt-BR", { maximumFractionDigits: 0 }) },
+            { key: "fcr", label: "Conversão (kg ração/dúzia)", render: (r) => (r.fcr === null ? "—" : `${r.fcr.toFixed(2)} kg/dz`) },
+          ]}
+          rows={fcrPorLote}
+          emptyText="Sem registros de consumo de ração lançados ainda — use o formulário 'Consumo de Ração e Água por Lote' abaixo."
+        />
+      </Card>
+
+      {!!alertasAguaRacao.length && (
+        <Card title="Alerta — variação atípica na relação água:ração" subtitle="Mudança brusca no consumo de água por kg de ração é geralmente o primeiro sinal de problema de saúde no plantel, antes de sintomas aparecerem. Comparando os últimos 7 dias com os 7 dias anteriores.">
+          <Table
+            columns={[
+              { key: "codigo", label: "Lote" },
+              { key: "ratioAnterior", label: "Água:ração — período anterior", render: (r) => `${r.ratioAnterior.toFixed(2)} L/kg` },
+              { key: "ratioRecente", label: "Água:ração — últimos 7 dias", render: (r) => `${r.ratioRecente.toFixed(2)} L/kg` },
+              {
+                key: "variacaoPct", label: "Variação", render: (r) => (
+                  <span style={{ color: DANGER, fontWeight: 700 }}>{r.variacaoPct >= 0 ? "+" : ""}{r.variacaoPct.toFixed(0)}%</span>
+                ),
+              },
+            ]}
+            rows={alertasAguaRacao}
+          />
+        </Card>
+      )}
+
+      <CrudBlock
+        title="Consumo de Ração e Água por Lote" subtitle="Lançamento diário/periódico — alimenta a conversão alimentar (kg ração/dúzia) e o alerta de variação água:ração acima." filialId={filialId}
+        items={consumos} onChange={(items) => update((prev) => ({ ...prev, registrosConsumo: mergeByFilial(prev.registrosConsumo, items, filialId) }))}
+        fields={[
+          { key: "data", label: "Data", type: "date", required: true },
+          { key: "loteId", label: "Lote", type: "select", options: lotes.map((l) => ({ value: l.id, label: l.codigo })) },
+          { key: "racaoKg", label: "Ração consumida (kg)", type: "number" },
+          { key: "aguaLitros", label: "Água consumida (litros)", type: "number" },
+        ]}
+        columns={[
+          { key: "data", label: "Data" },
+          { key: "loteId", label: "Lote", render: (r) => lotes.find((l) => l.id === r.loteId)?.codigo || "—" },
+          { key: "racaoKg", label: "Ração (kg)", render: (r) => Number(r.racaoKg || 0).toLocaleString("pt-BR") },
+          { key: "aguaLitros", label: "Água (L)", render: (r) => Number(r.aguaLitros || 0).toLocaleString("pt-BR") },
+          { key: "ratio", label: "Água:ração (L/kg)", render: (r) => (Number(r.racaoKg) > 0 ? (Number(r.aguaLitros || 0) / Number(r.racaoKg)).toFixed(2) : "—") },
+        ]}
+      />
+
+      {!!vacinasPendentes.length && (
+        <Card title="Vacinas pendentes/atrasadas" subtitle="Lotes que já chegaram na idade recomendada de uma vacina do Programa de Vacinação, mas ainda não têm aplicação registrada abaixo.">
+          <Table
+            columns={[
+              { key: "codigoLote", label: "Lote" },
+              { key: "vacina", label: "Vacina" },
+              { key: "viaAplicacao", label: "Via" },
+              { key: "idadeRecomendada", label: "Idade recomendada (sem.)" },
+              { key: "idadeAtual", label: "Idade atual (sem.)" },
+              {
+                key: "atraso", label: "Atraso", render: (r) => (
+                  <span style={{ color: r.atraso > 0 ? DANGER : INK, fontWeight: r.atraso > 0 ? 700 : 400 }}>{r.atraso} semana(s)</span>
+                ),
+              },
+            ]}
+            rows={vacinasPendentes}
+          />
+        </Card>
+      )}
+
+      <CrudBlock
+        title="Programa de Vacinação (padrão da granja)" subtitle="Calendário de referência por idade — o técnico RT define aqui as vacinas obrigatórias de cada fase; o sistema compara com as aplicações reais por lote e avisa quando está atrasado." filialId={filialId}
+        items={programaVacinacao} onChange={(items) => update((prev) => ({ ...prev, programaVacinacao: mergeByFilial(prev.programaVacinacao, items, filialId) }))}
+        fields={[
+          { key: "idadeSemanas", label: "Idade recomendada (semanas)", type: "number", required: true },
+          { key: "vacina", label: "Vacina", required: true },
+          { key: "viaAplicacao", label: "Via de aplicação", type: "select", options: [
+            { value: "spray", label: "Spray" },
+            { value: "agua_bebida", label: "Água de bebida" },
+            { value: "gota_ocular", label: "Gota ocular/nasal" },
+            { value: "subcutanea", label: "Injetável subcutânea" },
+            { value: "intramuscular", label: "Injetável intramuscular" },
+            { value: "wing_web", label: "Punção na asa (wing web)" },
+          ] },
+          { key: "obrigatoria", label: "Obrigatória?", type: "select", options: [{ value: "true", label: "Sim" }, { value: "false", label: "Não" }] },
+          { key: "observacoes", label: "Observações" },
+        ]}
+        columns={[
+          { key: "idadeSemanas", label: "Idade (sem.)" },
+          { key: "vacina", label: "Vacina" },
+          { key: "viaAplicacao", label: "Via" },
+          { key: "obrigatoria", label: "Obrigatória", render: (r) => (r.obrigatoria === "true" || r.obrigatoria === true ? "Sim" : "Não") },
+        ]}
+      />
+
+      <CrudBlock
+        title="Aplicações de Vacina por Lote" subtitle="Registro de cada vacinação de verdade aplicada — o que o RT veterinário apresenta numa inspeção. O nome da vacina deve bater com o cadastrado no Programa de Vacinação acima para o alerta de atraso funcionar corretamente." filialId={filialId}
+        items={vacinacoesLote} onChange={(items) => update((prev) => ({ ...prev, vacinacoesLote: mergeByFilial(prev.vacinacoesLote, items, filialId) }))}
+        fields={[
+          { key: "loteId", label: "Lote", type: "select", options: lotes.map((l) => ({ value: l.id, label: l.codigo })), required: true },
+          { key: "dataAplicacao", label: "Data da aplicação", type: "date", required: true },
+          { key: "vacina", label: "Vacina", required: true },
+          { key: "viaAplicacao", label: "Via de aplicação", type: "select", options: [
+            { value: "spray", label: "Spray" },
+            { value: "agua_bebida", label: "Água de bebida" },
+            { value: "gota_ocular", label: "Gota ocular/nasal" },
+            { value: "subcutanea", label: "Injetável subcutânea" },
+            { value: "intramuscular", label: "Injetável intramuscular" },
+            { value: "wing_web", label: "Punção na asa (wing web)" },
+          ] },
+          { key: "loteFabricanteVacina", label: "Lote/partida da vacina (fabricante)" },
+          { key: "validadeVacina", label: "Validade da vacina", type: "date" },
+          { key: "tecnicoResponsavel", label: "Técnico responsável" },
+          { key: "reacaoPosVacinal", label: "Reação pós-vacinal", type: "select", options: [
+            { value: "nenhuma", label: "Nenhuma observada" },
+            { value: "leve", label: "Leve" },
+            { value: "moderada", label: "Moderada" },
+            { value: "severa", label: "Severa" },
+          ] },
+          { key: "observacoes", label: "Observações" },
+        ]}
+        columns={[
+          { key: "dataAplicacao", label: "Data" },
+          { key: "loteId", label: "Lote", render: (r) => lotes.find((l) => l.id === r.loteId)?.codigo || "—" },
+          { key: "vacina", label: "Vacina" },
+          { key: "viaAplicacao", label: "Via" },
+          { key: "loteFabricanteVacina", label: "Lote da vacina" },
+          { key: "tecnicoResponsavel", label: "Técnico" },
+          {
+            key: "reacaoPosVacinal", label: "Reação", render: (r) => {
+              const cor = r.reacaoPosVacinal === "severa" ? DANGER : r.reacaoPosVacinal === "moderada" ? GOLD : INK;
+              const rotulos = { nenhuma: "Nenhuma", leve: "Leve", moderada: "Moderada", severa: "Severa" };
+              return <span style={{ color: cor, fontWeight: r.reacaoPosVacinal === "severa" ? 700 : 400 }}>{rotulos[r.reacaoPosVacinal] || "—"}</span>;
+            },
+          },
+        ]}
+      />
     </div>
   );
 }
@@ -5071,6 +5709,23 @@ function SensoresIoT({ conn, db, filialId }) {
 
   useEffect(() => { buscar(); }, [filialId]);
 
+  /* -------- ambiência: última leitura de temperatura/umidade por galpão vs. limiar cadastrado -------- */
+  const ultimaLeituraPorGalpaoTipo = (galpaoId, tipo) => {
+    const doGalpao = (leituras || []).filter((l) => l.galpaoId === galpaoId && l.tipo === tipo);
+    if (!doGalpao.length) return null;
+    return doGalpao.reduce((maisRecente, atual) => (!maisRecente || String(atual.timestamp) > String(maisRecente.timestamp) ? atual : maisRecente), null);
+  };
+  const statusAmbiencia = galpoes.map((g) => {
+    const temp = ultimaLeituraPorGalpaoTipo(g.id, "temperatura");
+    const umid = ultimaLeituraPorGalpaoTipo(g.id, "umidade");
+    const tempMax = Number(g.tempMaxC || 0);
+    const umidMax = Number(g.umidadeMaxPct || 0);
+    const tempAlerta = !!(temp && tempMax && Number(temp.valor) > tempMax);
+    const umidAlerta = !!(umid && umidMax && Number(umid.valor) > umidMax);
+    return { galpao: g, temp, umid, tempMax, umidMax, tempAlerta, umidAlerta };
+  });
+  const galpoesEmAlerta = statusAmbiencia.filter((s) => s.tempAlerta || s.umidAlerta);
+
   const exemploPayload = JSON.stringify({
     apiKey: "sua-chave-aqui",
     action: "hardware",
@@ -5087,6 +5742,43 @@ function SensoresIoT({ conn, db, filialId }) {
       <div style={{ background: "#EDE7F6", border: "1px solid #C9B8E8", borderRadius: 10, padding: "12px 14px", fontSize: 12.5, color: "#4A3A70" }}>
         Este módulo lê as leituras enviadas por sensores/hardware de galpão (temperatura, umidade, amônia, peso, consumo de água/ração) diretamente para o banco de dados, via o endpoint <code>action=hardware</code> do Apps Script — sem passar pelo app. Cada leitura vira uma nova linha; nada é sobrescrito.
       </div>
+
+      {!!galpoesEmAlerta.length && (
+        <Card title="⚠ Alerta de estresse térmico" subtitle="Galpões com a última leitura acima do limiar de conforto cadastrado (edite os limiares em Produção Avícola → Galpões).">
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {galpoesEmAlerta.map((s) => (
+              <div key={s.galpao.id} style={{ background: "#FBEAE4", border: `1px solid ${DANGER}55`, borderRadius: 10, padding: 12 }}>
+                <div style={{ fontWeight: 800, color: DANGER }}>{s.galpao.nome}</div>
+                <div style={{ fontSize: 12.5, color: INK, marginTop: 4 }}>
+                  {s.tempAlerta && <>Temperatura: <b>{s.temp.valor} °C</b> (limiar: {s.tempMax} °C){s.umidAlerta ? " · " : ""}</>}
+                  {s.umidAlerta && <>Umidade: <b>{s.umid.valor}%</b> (limiar: {s.umidMax}%)</>}
+                </div>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+
+      <Card title="Ambiência por galpão — última leitura" subtitle="Comparação da última leitura de temperatura/umidade recebida com o limiar de conforto cadastrado em cada galpão. Cadastre os limiares em Produção Avícola → Galpões para ativar o alerta acima.">
+        <Table
+          columns={[
+            { key: "nome", label: "Galpão", render: (r) => r.galpao.nome },
+            { key: "temp", label: "Última temp.", render: (r) => (r.temp ? <span style={{ color: r.tempAlerta ? DANGER : INK, fontWeight: r.tempAlerta ? 700 : 400 }}>{r.temp.valor} °C</span> : "—") },
+            { key: "tempMax", label: "Limiar temp.", render: (r) => (r.tempMax ? `${r.tempMax} °C` : "—") },
+            { key: "umid", label: "Última umidade", render: (r) => (r.umid ? <span style={{ color: r.umidAlerta ? DANGER : INK, fontWeight: r.umidAlerta ? 700 : 400 }}>{r.umid.valor}%</span> : "—") },
+            { key: "umidMax", label: "Limiar umidade", render: (r) => (r.umidMax ? `${r.umidMax}%` : "—") },
+            {
+              key: "status", label: "Status", render: (r) => {
+                if (!r.temp && !r.umid) return "Sem leitura";
+                if (r.tempAlerta || r.umidAlerta) return <span style={{ color: DANGER, fontWeight: 700 }}>Crítico</span>;
+                return <span style={{ color: SUCCESS, fontWeight: 700 }}>Normal</span>;
+              },
+            },
+          ]}
+          rows={statusAmbiencia}
+          emptyText="Nenhum galpão cadastrado ainda."
+        />
+      </Card>
 
       <Card title="Como um dispositivo deve enviar dados" subtitle="POST para a mesma URL do Apps Script, com Content-Type: text/plain e o corpo abaixo em JSON.">
         <div style={{ fontFamily: "monospace", fontSize: 11, background: GREEN_DARK, color: "#D7E3DC", padding: 14, borderRadius: 8, overflowX: "auto", whiteSpace: "pre" }}>{exemploPayload}</div>
@@ -5663,6 +6355,744 @@ function ForcaDeVendas({ db, update, filialId }) {
       )}
         </>
       )}
+    </div>
+  );
+}
+
+/* ================= Inspeção Sanitária ================= */
+/* Controle de inspeções de órgãos sanitários (MAPA/ADAGRO/Vigilância Sanitária) e de
+   empresas privadas contratadas (auditorias de certificação). Pensado pra avicultura
+   de postura: cada inspeção guarda técnico, órgão, se foi a pedido da granja ou de
+   ofício (provocada pelo órgão), códigos de auto/processo, quem acompanhou, não
+   conformidades encontradas, prazo de adequação e o laudo anexado. */
+const ORGAOS_INSPECAO = ["MAPA — Ministério da Agricultura", "ADAGRO/Órgão estadual de defesa agropecuária", "Vigilância Sanitária Municipal", "Vigilância Sanitária Estadual", "Corpo de Bombeiros", "Empresa privada / certificadora", "Outro"];
+const STATUS_INSPECAO = [
+  { value: "agendada", label: "Agendada" },
+  { value: "em_andamento", label: "Em andamento" },
+  { value: "aprovada", label: "Aprovada / Conforme" },
+  { value: "aprovada_ressalvas", label: "Aprovada com ressalvas" },
+  { value: "reprovada", label: "Reprovada / Não conforme" },
+  { value: "aguardando_laudo", label: "Aguardando laudo" },
+];
+
+function InspecaoSanitaria({ db, update, filialId }) {
+  const isMobile = useIsMobile();
+  const funcionarios = db.funcionarios.filter((f) => f.filialId === filialId && (f.ativo === "true" || f.ativo === true));
+  const inspecoes = db.inspecoesSanitarias.filter((i) => i.filialId === filialId);
+  const blank = {
+    data: todayISO(), tecnicoResponsavel: "", orgaoResponsavel: ORGAOS_INSPECAO[0], tipoOrgao: "publico",
+    empresaPrivada: "", codigosInspecao: "", acompanhantes: "", origemInspecao: "solicitada",
+    motivoInspecao: "Rotina", status: "agendada", naoConformidades: "", prazoAdequacao: "",
+    proximaInspecaoPrevista: "", anexos: [], observacoes: "",
+  };
+  const [form, setForm] = useState(blank);
+  const [editandoId, setEditandoId] = useState(null);
+
+  function salvar(e) {
+    e.preventDefault();
+    if (!form.data || !form.tecnicoResponsavel) return;
+    if (editandoId) {
+      update((prev) => ({ ...prev, inspecoesSanitarias: prev.inspecoesSanitarias.map((i) => (i.id === editandoId ? { ...form, id: editandoId, filialId } : i)) }));
+    } else {
+      update((prev) => ({ ...prev, inspecoesSanitarias: [...prev.inspecoesSanitarias, { ...form, id: uid(), filialId }] }));
+    }
+    setForm(blank);
+    setEditandoId(null);
+  }
+  function editar(i) { setForm({ ...blank, ...i }); setEditandoId(i.id); }
+  function remover(i) { update((prev) => ({ ...prev, inspecoesSanitarias: prev.inspecoesSanitarias.filter((x) => x.id !== i.id) })); if (editandoId === i.id) { setForm(blank); setEditandoId(null); } }
+
+  const pendentes = inspecoes.filter((i) => i.status === "agendada" || i.status === "em_andamento" || i.status === "aguardando_laudo").length;
+  const reprovadas = inspecoes.filter((i) => i.status === "reprovada").length;
+
+  const corStatus = { agendada: MUTED, em_andamento: GOLD, aprovada: SUCCESS, aprovada_ressalvas: GOLD, reprovada: DANGER, aguardando_laudo: MUTED };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
+        <StatCard label="Inspeções registradas" value={inspecoes.length} accent={GREEN} />
+        <StatCard label="Pendentes / em andamento" value={pendentes} accent={GOLD} />
+        <StatCard label="Reprovadas" value={reprovadas} accent={DANGER} />
+      </div>
+
+      <Card title={editandoId ? "Editar inspeção" : "Registrar inspeção"} subtitle="Cobre tanto fiscalização de órgão público (de ofício ou a pedido da granja) quanto auditoria de empresa privada/certificadora.">
+        <form onSubmit={salvar} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          <div style={{ display: "grid", gridTemplateColumns: gridCols(isMobile, "1fr 1fr 1fr"), gap: 10 }}>
+            <Field label="Data da realização"><TextInput type="date" value={form.data} onChange={(e) => setForm({ ...form, data: e.target.value })} /></Field>
+            <Field label="Técnico responsável (do órgão/empresa)"><TextInput value={form.tecnicoResponsavel} onChange={(e) => setForm({ ...form, tecnicoResponsavel: e.target.value })} /></Field>
+            <Field label="Tipo">
+              <Select options={[{ value: "publico", label: "Órgão público" }, { value: "privado", label: "Empresa privada/particular" }]} value={form.tipoOrgao} onChange={(e) => setForm({ ...form, tipoOrgao: e.target.value })} />
+            </Field>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: gridCols(isMobile, "1fr 1fr"), gap: 10 }}>
+            <Field label="Órgão / empresa responsável">
+              <Select options={ORGAOS_INSPECAO.map((o) => ({ value: o, label: o }))} value={form.orgaoResponsavel} onChange={(e) => setForm({ ...form, orgaoResponsavel: e.target.value })} />
+            </Field>
+            {form.tipoOrgao === "privado" && (
+              <Field label="Nome da empresa privada"><TextInput value={form.empresaPrivada} onChange={(e) => setForm({ ...form, empresaPrivada: e.target.value })} /></Field>
+            )}
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: gridCols(isMobile, "1fr 1fr"), gap: 10 }}>
+            <Field label="A inspeção foi solicitada pela granja ou provocada pelo órgão?">
+              <Select options={[{ value: "solicitada", label: "Solicitada pela granja (renovação, certificação etc.)" }, { value: "de_oficio", label: "De ofício / provocada pelo órgão (rotina ou denúncia)" }]} value={form.origemInspecao} onChange={(e) => setForm({ ...form, origemInspecao: e.target.value })} />
+            </Field>
+            <Field label="Motivo">
+              <Select options={[{ value: "Rotina", label: "Rotina" }, { value: "Renovação de licença/registro", label: "Renovação de licença/registro" }, { value: "Denúncia", label: "Denúncia" }, { value: "Certificação", label: "Certificação" }, { value: "Reinspeção", label: "Reinspeção (após não conformidade)" }, { value: "Outro", label: "Outro" }]} value={form.motivoInspecao} onChange={(e) => setForm({ ...form, motivoInspecao: e.target.value })} />
+            </Field>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: gridCols(isMobile, "1fr 1fr"), gap: 10 }}>
+            <Field label="Código(s) do auto/processo/protocolo (se houver)"><TextInput placeholder="ex.: Auto nº 1234/2026" value={form.codigosInspecao} onChange={(e) => setForm({ ...form, codigosInspecao: e.target.value })} /></Field>
+            <Field label="Quem da empresa acompanhou"><Select options={funcionarios.map((f) => ({ value: f.nome, label: `${f.nome} (${f.cargo})` }))} value={form.acompanhantes} onChange={(e) => setForm({ ...form, acompanhantes: e.target.value })} /></Field>
+          </div>
+          <Field label="Status da inspeção">
+            <Select options={STATUS_INSPECAO} value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })} />
+          </Field>
+          {(form.status === "aprovada_ressalvas" || form.status === "reprovada") && (
+            <div style={{ display: "grid", gridTemplateColumns: gridCols(isMobile, "2fr 1fr"), gap: 10, background: "#FCEEE9", borderRadius: 10, padding: 12 }}>
+              <Field label="Não conformidades encontradas"><TextInput value={form.naoConformidades} onChange={(e) => setForm({ ...form, naoConformidades: e.target.value })} /></Field>
+              <Field label="Prazo para adequação"><TextInput type="date" value={form.prazoAdequacao} onChange={(e) => setForm({ ...form, prazoAdequacao: e.target.value })} /></Field>
+            </div>
+          )}
+          <Field label="Próxima inspeção prevista (se souber)"><TextInput type="date" value={form.proximaInspecaoPrevista} onChange={(e) => setForm({ ...form, proximaInspecaoPrevista: e.target.value })} /></Field>
+          <Field label="Observações"><TextInput value={form.observacoes} onChange={(e) => setForm({ ...form, observacoes: e.target.value })} /></Field>
+          <UploadAnexos anexos={form.anexos} onChange={(anexos) => setForm({ ...form, anexos })} label="Anexar laudo / auto de infração / certificado (foto ou PDF)" />
+          <div style={{ display: "flex", gap: 8 }}>
+            <Button type="submit">{editandoId ? "Salvar alteração" : "Registrar inspeção"}</Button>
+            {editandoId && <Button type="button" variant="ghost" onClick={() => { setForm(blank); setEditandoId(null); }}>Cancelar</Button>}
+          </div>
+        </form>
+      </Card>
+
+      <Card title={`Inspeções registradas (${inspecoes.length})`}>
+        <FilterableTable
+          searchPlaceholder="Buscar por técnico, órgão, empresa ou não conformidade…"
+          searchFields={["tecnicoResponsavel", "orgaoResponsavel", "empresaPrivada", "codigosInspecao", "naoConformidades", "acompanhantes"]}
+          dateField="data"
+          emptyText="Nenhuma inspeção registrada ainda."
+          onEdit={editar}
+          onDelete={remover}
+          columns={[
+            { key: "data", label: "Data" },
+            { key: "orgaoResponsavel", label: "Órgão/Empresa", render: (r) => <span>{r.orgaoResponsavel}{r.tipoOrgao === "privado" && r.empresaPrivada && <><br /><span style={{ fontSize: 10.5, color: MUTED }}>{r.empresaPrivada}</span></>}</span> },
+            { key: "tecnicoResponsavel", label: "Técnico" },
+            { key: "origemInspecao", label: "Origem", render: (r) => (r.origemInspecao === "solicitada" ? "Solicitada pela granja" : "De ofício") },
+            { key: "acompanhantes", label: "Acompanhou" },
+            { key: "status", label: "Status", render: (r) => <span style={{ color: corStatus[r.status] || MUTED, fontWeight: 700, fontSize: 12 }}>{STATUS_INSPECAO.find((s) => s.value === r.status)?.label || r.status}</span> },
+            { key: "anexos", label: "Laudo", render: (r) => <ColunaAnexos anexos={r.anexos} /> },
+          ]}
+          rows={[...inspecoes].sort((a, b) => (a.data < b.data ? 1 : -1))}
+        />
+      </Card>
+    </div>
+  );
+}
+
+/* ================= Controle de Pragas ================= */
+/* Programa de controle integrado de pragas (PCP) típico de granja de postura:
+   pontos de controle numerados (iscas/armadilhas), tipo de praga monitorada,
+   produto e registro no MAPA/ANVISA, empresa aplicadora (terceirizada) ou
+   equipe própria, e a periodicidade de reaplicação. */
+const TIPOS_PRAGA = ["Roedores", "Insetos voadores (moscas)", "Insetos rasteiros (baratas/formigas)", "Aves silvestres/pombos", "Cupins", "Outro"];
+const METODOS_CONTROLE = ["Isca raticida", "Armadilha mecânica/adesiva", "Pulverização residual", "Nebulização/UBV", "Controle biológico", "Barreira física/tela", "Outro"];
+
+function ControlePragas({ db, update, filialId }) {
+  const isMobile = useIsMobile();
+  const registros = db.controlePragas.filter((r) => r.filialId === filialId);
+  const blank = {
+    data: todayISO(), tipoPraga: TIPOS_PRAGA[0], pontoControle: "", localizacao: "", metodo: METODOS_CONTROLE[0],
+    produtoUtilizado: "", registroMapa: "", empresaAplicadora: "Equipe própria", tecnicoResponsavel: "",
+    statusPonto: "ativo", atividadeDetectada: "false", proximaAplicacao: "", anexos: [], observacoes: "",
+  };
+  const [form, setForm] = useState(blank);
+  const [editandoId, setEditandoId] = useState(null);
+
+  function salvar(e) {
+    e.preventDefault();
+    if (!form.data || !form.pontoControle) return;
+    if (editandoId) update((prev) => ({ ...prev, controlePragas: prev.controlePragas.map((r) => (r.id === editandoId ? { ...form, id: editandoId, filialId } : r)) }));
+    else update((prev) => ({ ...prev, controlePragas: [...prev.controlePragas, { ...form, id: uid(), filialId }] }));
+    setForm(blank);
+    setEditandoId(null);
+  }
+  function editar(r) { setForm({ ...blank, ...r }); setEditandoId(r.id); }
+  function remover(r) { update((prev) => ({ ...prev, controlePragas: prev.controlePragas.filter((x) => x.id !== r.id) })); if (editandoId === r.id) { setForm(blank); setEditandoId(null); } }
+
+  const hoje = todayISO();
+  const vencidos = registros.filter((r) => r.proximaAplicacao && r.proximaAplicacao < hoje).length;
+  const comAtividade = registros.filter((r) => r.atividadeDetectada === "true" || r.atividadeDetectada === true).length;
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
+        <StatCard label="Pontos/aplicações registrados" value={registros.length} accent={GREEN} />
+        <StatCard label="Reaplicação vencida" value={vencidos} accent={vencidos > 0 ? DANGER : SUCCESS} />
+        <StatCard label="Com atividade de praga detectada" value={comAtividade} accent={comAtividade > 0 ? GOLD : SUCCESS} />
+      </div>
+
+      <Card title={editandoId ? "Editar aplicação/ponto" : "Registrar aplicação / ponto de controle"} subtitle="Cada linha é uma inspeção ou aplicação num ponto de controle — repita o mesmo código de ponto ao longo do tempo pra acompanhar o histórico dele.">
+        <form onSubmit={salvar} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          <div style={{ display: "grid", gridTemplateColumns: gridCols(isMobile, "1fr 1fr 1fr"), gap: 10 }}>
+            <Field label="Data"><TextInput type="date" value={form.data} onChange={(e) => setForm({ ...form, data: e.target.value })} /></Field>
+            <Field label="Ponto de controle (código)"><TextInput placeholder="ex.: PT-12" value={form.pontoControle} onChange={(e) => setForm({ ...form, pontoControle: e.target.value })} /></Field>
+            <Field label="Localização"><TextInput placeholder="ex.: Galpão 4 — parede externa" value={form.localizacao} onChange={(e) => setForm({ ...form, localizacao: e.target.value })} /></Field>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: gridCols(isMobile, "1fr 1fr"), gap: 10 }}>
+            <Field label="Tipo de praga monitorada"><Select options={TIPOS_PRAGA.map((t) => ({ value: t, label: t }))} value={form.tipoPraga} onChange={(e) => setForm({ ...form, tipoPraga: e.target.value })} /></Field>
+            <Field label="Método"><Select options={METODOS_CONTROLE.map((m) => ({ value: m, label: m }))} value={form.metodo} onChange={(e) => setForm({ ...form, metodo: e.target.value })} /></Field>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: gridCols(isMobile, "1fr 1fr"), gap: 10 }}>
+            <Field label="Produto utilizado"><TextInput value={form.produtoUtilizado} onChange={(e) => setForm({ ...form, produtoUtilizado: e.target.value })} /></Field>
+            <Field label="Registro no MAPA/ANVISA do produto"><TextInput value={form.registroMapa} onChange={(e) => setForm({ ...form, registroMapa: e.target.value })} /></Field>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: gridCols(isMobile, "1fr 1fr"), gap: 10 }}>
+            <Field label="Empresa aplicadora"><TextInput placeholder="Equipe própria ou nome da dedetizadora" value={form.empresaAplicadora} onChange={(e) => setForm({ ...form, empresaAplicadora: e.target.value })} /></Field>
+            <Field label="Técnico responsável"><TextInput value={form.tecnicoResponsavel} onChange={(e) => setForm({ ...form, tecnicoResponsavel: e.target.value })} /></Field>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: gridCols(isMobile, "1fr 1fr 1fr"), gap: 10 }}>
+            <Field label="Status do ponto"><Select options={[{ value: "ativo", label: "Ativo/monitorando" }, { value: "substituido", label: "Isca/armadilha substituída" }, { value: "desativado", label: "Desativado" }]} value={form.statusPonto} onChange={(e) => setForm({ ...form, statusPonto: e.target.value })} /></Field>
+            <Field label="Atividade de praga detectada?"><Select options={[{ value: "false", label: "Não" }, { value: "true", label: "Sim" }]} value={String(form.atividadeDetectada)} onChange={(e) => setForm({ ...form, atividadeDetectada: e.target.value })} /></Field>
+            <Field label="Próxima aplicação prevista"><TextInput type="date" value={form.proximaAplicacao} onChange={(e) => setForm({ ...form, proximaAplicacao: e.target.value })} /></Field>
+          </div>
+          <Field label="Observações"><TextInput value={form.observacoes} onChange={(e) => setForm({ ...form, observacoes: e.target.value })} /></Field>
+          <UploadAnexos anexos={form.anexos} onChange={(anexos) => setForm({ ...form, anexos })} label="Anexar laudo/certificado da dedetizadora ou foto do ponto" />
+          <div style={{ display: "flex", gap: 8 }}>
+            <Button type="submit">{editandoId ? "Salvar alteração" : "Registrar"}</Button>
+            {editandoId && <Button type="button" variant="ghost" onClick={() => { setForm(blank); setEditandoId(null); }}>Cancelar</Button>}
+          </div>
+        </form>
+      </Card>
+
+      <Card title={`Histórico (${registros.length})`}>
+        <FilterableTable
+          searchPlaceholder="Buscar por ponto, localização, praga ou empresa…"
+          searchFields={["pontoControle", "localizacao", "tipoPraga", "empresaAplicadora", "tecnicoResponsavel"]}
+          dateField="data"
+          emptyText="Nenhum registro de controle de pragas ainda."
+          onEdit={editar}
+          onDelete={remover}
+          columns={[
+            { key: "data", label: "Data" },
+            { key: "pontoControle", label: "Ponto", render: (r) => <span>{r.pontoControle}<br /><span style={{ fontSize: 10.5, color: MUTED }}>{r.localizacao}</span></span> },
+            { key: "tipoPraga", label: "Praga" },
+            { key: "metodo", label: "Método" },
+            { key: "atividadeDetectada", label: "Atividade", render: (r) => (r.atividadeDetectada === "true" || r.atividadeDetectada === true ? <span style={{ color: DANGER, fontWeight: 700 }}>Detectada</span> : <span style={{ color: SUCCESS }}>Sem atividade</span>) },
+            { key: "proximaAplicacao", label: "Próxima aplicação", render: (r) => r.proximaAplicacao ? <span style={{ color: r.proximaAplicacao < hoje ? DANGER : INK, fontWeight: r.proximaAplicacao < hoje ? 700 : 400 }}>{r.proximaAplicacao}{r.proximaAplicacao < hoje ? " (vencida)" : ""}</span> : "—" },
+            { key: "anexos", label: "Anexo", render: (r) => <ColunaAnexos anexos={r.anexos} /> },
+          ]}
+          rows={[...registros].sort((a, b) => (a.data < b.data ? 1 : -1))}
+        />
+      </Card>
+    </div>
+  );
+}
+
+/* ================= Tarefas & Produtividade ================= */
+/* Checklist operacional de granja de postura: tarefas essenciais (diárias, semanais,
+   mensais) atribuídas a um colaborador/setor, com prazo, follow-up (comentários) e
+   status calculado automaticamente (concluída no prazo / concluída com atraso /
+   atrasada / pendente). O painel de produtividade aqui resume o que entraria no
+   Relatório Gerencial: % concluído no prazo por setor e por responsável. */
+const TAREFAS_MODELO = [
+  { titulo: "Contagem e registro de mortalidade", setor: "Produção", recorrencia: "diaria" },
+  { titulo: "Verificação de água e ração nos bebedouros/comedouros", setor: "Produção", recorrencia: "diaria" },
+  { titulo: "Coleta e classificação dos ovos", setor: "Produção", recorrencia: "diaria" },
+  { titulo: "Limpeza e desinfecção dos galpões", setor: "Produção", recorrencia: "semanal" },
+  { titulo: "Verificação do programa de vacinação", setor: "Sanidade", recorrencia: "semanal" },
+  { titulo: "Inspeção dos pontos de controle de pragas", setor: "Sanidade", recorrencia: "semanal" },
+  { titulo: "Conferência de estoque de ração/insumos", setor: "Fábrica de Ração", recorrencia: "semanal" },
+  { titulo: "Fechamento financeiro do mês (contas a pagar/receber)", setor: "Financeiro", recorrencia: "mensal" },
+];
+
+function GestaoTarefas({ db, update, filialId }) {
+  const isMobile = useIsMobile();
+  const funcionarios = db.funcionarios.filter((f) => f.filialId === filialId && (f.ativo === "true" || f.ativo === true));
+  const tarefas = db.tarefas.filter((t) => t.filialId === filialId);
+  const hoje = todayISO();
+
+  const blank = { titulo: "", descricao: "", setor: "Produção", responsavel: "", prazo: hoje, prioridade: "media", recorrencia: "nenhuma", dataConclusao: "", comentarios: [] };
+  const [form, setForm] = useState(blank);
+  const [editandoId, setEditandoId] = useState(null);
+  const [filtroSetor, setFiltroSetor] = useState("");
+  const [novoComentario, setNovoComentario] = useState({});
+
+  function statusDe(t) {
+    if (t.dataConclusao) return t.dataConclusao <= t.prazo ? "concluida_prazo" : "concluida_atraso";
+    if (t.prazo < hoje) return "atrasada";
+    return "pendente";
+  }
+  const ROTULO_STATUS = { concluida_prazo: "Concluída no prazo", concluida_atraso: "Concluída com atraso", atrasada: "Atrasada", pendente: "Pendente" };
+  const COR_STATUS = { concluida_prazo: SUCCESS, concluida_atraso: GOLD, atrasada: DANGER, pendente: MUTED };
+
+  function salvar(e) {
+    e.preventDefault();
+    if (!form.titulo || !form.responsavel) return;
+    if (editandoId) update((prev) => ({ ...prev, tarefas: prev.tarefas.map((t) => (t.id === editandoId ? { ...form, id: editandoId, filialId } : t)) }));
+    else update((prev) => ({ ...prev, tarefas: [...prev.tarefas, { ...form, id: uid(), filialId, comentarios: [] }] }));
+    setForm(blank);
+    setEditandoId(null);
+  }
+  function editar(t) { setForm({ ...blank, ...t }); setEditandoId(t.id); }
+  function remover(t) { update((prev) => ({ ...prev, tarefas: prev.tarefas.filter((x) => x.id !== t.id) })); if (editandoId === t.id) { setForm(blank); setEditandoId(null); } }
+  function concluir(t) { update((prev) => ({ ...prev, tarefas: prev.tarefas.map((x) => (x.id === t.id ? { ...x, dataConclusao: hoje } : x)) })); }
+  function reabrir(t) { update((prev) => ({ ...prev, tarefas: prev.tarefas.map((x) => (x.id === t.id ? { ...x, dataConclusao: "" } : x)) })); }
+  function adicionarComentario(t) {
+    const texto = (novoComentario[t.id] || "").trim();
+    if (!texto) return;
+    update((prev) => ({ ...prev, tarefas: prev.tarefas.map((x) => (x.id === t.id ? { ...x, comentarios: [...(x.comentarios || []), { id: uid(), data: hoje, texto }] } : x)) }));
+    setNovoComentario({ ...novoComentario, [t.id]: "" });
+  }
+  function criarModelo(m) {
+    update((prev) => ({ ...prev, tarefas: [...prev.tarefas, { id: uid(), filialId, titulo: m.titulo, descricao: "", setor: m.setor, responsavel: "", prazo: hoje, prioridade: "media", recorrencia: m.recorrencia, dataConclusao: "", comentarios: [] }] }));
+  }
+
+  const setores = [...new Set([...tarefas.map((t) => t.setor), "Produção", "Sanidade", "Fábrica de Ração", "Administrativo", "Financeiro", "Logística"])];
+  const listaFiltrada = filtroSetor ? tarefas.filter((t) => t.setor === filtroSetor) : tarefas;
+
+  const total = tarefas.length || 1;
+  const concluidasPrazo = tarefas.filter((t) => statusDe(t) === "concluida_prazo").length;
+  const atrasadas = tarefas.filter((t) => statusDe(t) === "atrasada").length;
+  const pctNoPrazo = Math.round((concluidasPrazo / total) * 100);
+
+  const porResponsavel = {};
+  tarefas.forEach((t) => {
+    if (!t.responsavel) return;
+    porResponsavel[t.responsavel] = porResponsavel[t.responsavel] || { total: 0, noPrazo: 0, atrasadas: 0 };
+    porResponsavel[t.responsavel].total++;
+    const st = statusDe(t);
+    if (st === "concluida_prazo") porResponsavel[t.responsavel].noPrazo++;
+    if (st === "atrasada") porResponsavel[t.responsavel].atrasadas++;
+  });
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
+        <StatCard label="Tarefas cadastradas" value={tarefas.length} accent={GREEN} />
+        <StatCard label="% concluídas no prazo" value={`${pctNoPrazo}%`} accent={pctNoPrazo >= 80 ? SUCCESS : pctNoPrazo >= 50 ? GOLD : DANGER} />
+        <StatCard label="Atrasadas agora" value={atrasadas} accent={atrasadas > 0 ? DANGER : SUCCESS} />
+      </div>
+
+      <Card title="Checklist essencial de avicultura de postura" subtitle="Modelos prontos pra granja — clique pra criar a tarefa (você define o responsável e o prazo depois).">
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+          {TAREFAS_MODELO.map((m, i) => (
+            <button key={i} onClick={() => criarModelo(m)} style={{ fontSize: 11.5, background: BG, border: `1px solid ${BORDER}`, borderRadius: 999, padding: "6px 12px", cursor: "pointer", color: GREEN, fontWeight: 600 }}>+ {m.titulo}</button>
+          ))}
+        </div>
+      </Card>
+
+      <Card title={editandoId ? "Editar tarefa" : "Nova tarefa"}>
+        <form onSubmit={salvar} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          <div style={{ display: "grid", gridTemplateColumns: gridCols(isMobile, "2fr 1fr"), gap: 10 }}>
+            <Field label="Título"><TextInput value={form.titulo} onChange={(e) => setForm({ ...form, titulo: e.target.value })} /></Field>
+            <Field label="Setor"><Select options={setores.map((s) => ({ value: s, label: s }))} value={form.setor} onChange={(e) => setForm({ ...form, setor: e.target.value })} /></Field>
+          </div>
+          <Field label="Descrição"><TextInput value={form.descricao} onChange={(e) => setForm({ ...form, descricao: e.target.value })} /></Field>
+          <div style={{ display: "grid", gridTemplateColumns: gridCols(isMobile, "1fr 1fr 1fr 1fr"), gap: 10 }}>
+            <Field label="Responsável"><Select options={funcionarios.map((f) => ({ value: f.nome, label: `${f.nome} (${f.cargo})` }))} value={form.responsavel} onChange={(e) => setForm({ ...form, responsavel: e.target.value })} /></Field>
+            <Field label="Prazo"><TextInput type="date" value={form.prazo} onChange={(e) => setForm({ ...form, prazo: e.target.value })} /></Field>
+            <Field label="Prioridade"><Select options={[{ value: "baixa", label: "Baixa" }, { value: "media", label: "Média" }, { value: "alta", label: "Alta" }]} value={form.prioridade} onChange={(e) => setForm({ ...form, prioridade: e.target.value })} /></Field>
+            <Field label="Recorrência"><Select options={[{ value: "nenhuma", label: "Não se repete" }, { value: "diaria", label: "Diária" }, { value: "semanal", label: "Semanal" }, { value: "mensal", label: "Mensal" }]} value={form.recorrencia} onChange={(e) => setForm({ ...form, recorrencia: e.target.value })} /></Field>
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <Button type="submit">{editandoId ? "Salvar alteração" : "Criar tarefa"}</Button>
+            {editandoId && <Button type="button" variant="ghost" onClick={() => { setForm(blank); setEditandoId(null); }}>Cancelar</Button>}
+          </div>
+        </form>
+      </Card>
+
+      {!!Object.keys(porResponsavel).length && (
+        <Card title="Painel de produtividade por responsável" subtitle="Isso é o que alimentaria o Relatório Gerencial — % de tarefas concluídas no prazo por pessoa.">
+          <Table
+            columns={[
+              { key: "nome", label: "Responsável" },
+              { key: "total", label: "Total" },
+              { key: "noPrazo", label: "No prazo" },
+              { key: "atrasadas", label: "Atrasadas" },
+              { key: "pct", label: "% no prazo", render: (r) => `${Math.round((r.noPrazo / r.total) * 100)}%` },
+            ]}
+            rows={Object.entries(porResponsavel).map(([nome, v]) => ({ id: nome, nome, ...v }))}
+          />
+        </Card>
+      )}
+
+      <Card title={`Tarefas (${listaFiltrada.length})`}>
+        <div style={{ marginBottom: 10 }}>
+          <Field label="Filtrar por setor"><Select options={[{ value: "", label: "Todos os setores" }, ...setores.map((s) => ({ value: s, label: s }))]} value={filtroSetor} onChange={(e) => setFiltroSetor(e.target.value)} /></Field>
+        </div>
+        <FilterableTable
+          searchPlaceholder="Buscar por título, responsável ou setor…"
+          searchFields={["titulo", "responsavel", "setor", "descricao"]}
+          emptyText="Nenhuma tarefa cadastrada ainda."
+          onEdit={editar}
+          onDelete={remover}
+          columns={[
+            { key: "titulo", label: "Tarefa", render: (r) => <span>{r.titulo}<br /><span style={{ fontSize: 10.5, color: MUTED }}>{r.setor} • prioridade {r.prioridade}</span></span> },
+            { key: "responsavel", label: "Responsável" },
+            { key: "prazo", label: "Prazo" },
+            { key: "status", label: "Status", render: (r) => <span style={{ color: COR_STATUS[statusDe(r)], fontWeight: 700, fontSize: 12 }}>{ROTULO_STATUS[statusDe(r)]}</span> },
+            { key: "acao", label: "", render: (r) => (r.dataConclusao ? <button onClick={() => reabrir(r)} style={linkBtnStyle(MUTED)}>reabrir</button> : <button onClick={() => concluir(r)} style={linkBtnStyle(SUCCESS)}>concluir hoje</button>) },
+            { key: "followup", label: "Follow-up", render: (r) => (
+              <div style={{ minWidth: 180 }}>
+                {(r.comentarios || []).map((c) => <div key={c.id} style={{ fontSize: 10.5, color: MUTED, marginBottom: 2 }}>[{c.data}] {c.texto}</div>)}
+                <div style={{ display: "flex", gap: 4, marginTop: 4 }}>
+                  <input value={novoComentario[r.id] || ""} onChange={(e) => setNovoComentario({ ...novoComentario, [r.id]: e.target.value })} placeholder="follow-up…" style={{ fontSize: 11, border: `1px solid ${BORDER}`, borderRadius: 6, padding: "3px 6px", flex: 1 }} />
+                  <button onClick={() => adicionarComentario(r)} style={linkBtnStyle(GREEN)}>+</button>
+                </div>
+              </div>
+            ) },
+          ]}
+          rows={[...listaFiltrada].sort((a, b) => (a.prazo < b.prazo ? 1 : -1))}
+        />
+      </Card>
+    </div>
+  );
+}
+
+/* ================= CRM ================= */
+/* Pipeline comercial simples: leads (prospects) com estágio, valor potencial e
+   histórico de interações com follow-up agendado. Clientes já cadastrados em
+   Vendas podem virar lead aqui pra negociar reajuste, novo contrato etc. */
+const ESTAGIOS_CRM = [
+  { value: "prospeccao", label: "Prospecção" },
+  { value: "contato_feito", label: "Contato feito" },
+  { value: "proposta_enviada", label: "Proposta enviada" },
+  { value: "negociacao", label: "Em negociação" },
+  { value: "ganho", label: "Fechado — ganho" },
+  { value: "perdido", label: "Fechado — perdido" },
+];
+const TIPOS_INTERACAO = ["Ligação", "Visita", "E-mail", "WhatsApp", "Reunião", "Outro"];
+
+function ModuloCRM({ db, update, filialId }) {
+  const isMobile = useIsMobile();
+  const clientes = db.clientes.filter((c) => c.filialId === filialId);
+  const vendedores = db.vendedores.filter((v) => v.filialId === filialId);
+  const leads = db.crmLeads.filter((l) => l.filialId === filialId);
+  const interacoes = db.crmInteracoes.filter((i) => i.filialId === filialId);
+  const hoje = todayISO();
+
+  const blankLead = { nome: "", empresa: "", clienteId: "", telefone: "", email: "", origem: "", estagio: "prospeccao", valorPotencial: "", vendedorId: "", proximoContato: "" };
+  const [form, setForm] = useState(blankLead);
+  const [editandoId, setEditandoId] = useState(null);
+  const [leadDetalhe, setLeadDetalhe] = useState(null);
+  const [novaInteracao, setNovaInteracao] = useState({ tipo: "Ligação", data: hoje, responsavel: "", notas: "", proximaAcao: "" });
+
+  function salvarLead(e) {
+    e.preventDefault();
+    if (!form.nome) return;
+    if (editandoId) update((prev) => ({ ...prev, crmLeads: prev.crmLeads.map((l) => (l.id === editandoId ? { ...form, id: editandoId, filialId } : l)) }));
+    else update((prev) => ({ ...prev, crmLeads: [...prev.crmLeads, { ...form, id: uid(), filialId }] }));
+    setForm(blankLead);
+    setEditandoId(null);
+  }
+  function editarLead(l) { setForm({ ...blankLead, ...l }); setEditandoId(l.id); }
+  function removerLead(l) {
+    update((prev) => ({ ...prev, crmLeads: prev.crmLeads.filter((x) => x.id !== l.id), crmInteracoes: prev.crmInteracoes.filter((x) => x.leadId !== l.id) }));
+    if (editandoId === l.id) { setForm(blankLead); setEditandoId(null); }
+  }
+  function mudarEstagio(l, estagio) { update((prev) => ({ ...prev, crmLeads: prev.crmLeads.map((x) => (x.id === l.id ? { ...x, estagio } : x)) })); }
+  function registrarInteracao() {
+    if (!leadDetalhe || !novaInteracao.notas) return;
+    update((prev) => ({ ...prev, crmInteracoes: [...prev.crmInteracoes, { id: uid(), filialId, leadId: leadDetalhe.id, ...novaInteracao }] }));
+    setNovaInteracao({ tipo: "Ligação", data: hoje, responsavel: "", notas: "", proximaAcao: "" });
+  }
+
+  const interacoesDoLead = (leadId) => interacoes.filter((i) => i.leadId === leadId).sort((a, b) => (a.data < b.data ? 1 : -1));
+  const nomeVendedor = (id) => vendedores.find((v) => v.id === id)?.apelido || vendedores.find((v) => v.id === id)?.nomeCompleto || "—";
+
+  const abertos = leads.filter((l) => l.estagio !== "ganho" && l.estagio !== "perdido");
+  const valorPipeline = abertos.reduce((s, l) => s + Number(l.valorPotencial || 0), 0);
+  const followupsHoje = leads.filter((l) => l.proximoContato && l.proximoContato <= hoje && l.estagio !== "ganho" && l.estagio !== "perdido");
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
+        <StatCard label="Leads em aberto" value={abertos.length} accent={GREEN} />
+        <StatCard label="Valor em negociação" value={brl(valorPipeline)} accent={GOLD} />
+        <StatCard label="Follow-ups vencidos/hoje" value={followupsHoje.length} accent={followupsHoje.length ? DANGER : SUCCESS} />
+      </div>
+
+      {!!followupsHoje.length && (
+        <div style={{ background: "#FCEEE9", border: `1px solid ${DANGER}55`, borderRadius: 10, padding: "10px 14px", fontSize: 12.5, color: DANGER }}>
+          {followupsHoje.length} lead(s) com follow-up pra hoje ou atrasado: {followupsHoje.map((l) => l.nome).join(", ")}
+        </div>
+      )}
+
+      <Card title={editandoId ? "Editar lead" : "Novo lead"}>
+        <form onSubmit={salvarLead} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          <div style={{ display: "grid", gridTemplateColumns: gridCols(isMobile, "1fr 1fr"), gap: 10 }}>
+            <Field label="Nome do contato"><TextInput value={form.nome} onChange={(e) => setForm({ ...form, nome: e.target.value })} /></Field>
+            <Field label="Empresa"><TextInput value={form.empresa} onChange={(e) => setForm({ ...form, empresa: e.target.value })} /></Field>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: gridCols(isMobile, "1fr 1fr"), gap: 10 }}>
+            <Field label="Telefone"><TextInput value={form.telefone} onChange={(e) => setForm({ ...form, telefone: e.target.value })} /></Field>
+            <Field label="E-mail"><TextInput type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></Field>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: gridCols(isMobile, "1fr 1fr 1fr"), gap: 10 }}>
+            <Field label="Cliente já cadastrado (opcional)"><Select options={[{ value: "", label: "— Lead novo —" }, ...clientes.map((c) => ({ value: c.id, label: c.razaoSocial }))]} value={form.clienteId} onChange={(e) => setForm({ ...form, clienteId: e.target.value })} /></Field>
+            <Field label="Origem"><TextInput placeholder="indicação, feira, prospecção ativa…" value={form.origem} onChange={(e) => setForm({ ...form, origem: e.target.value })} /></Field>
+            <Field label="Vendedor responsável"><Select options={vendedores.map((v) => ({ value: v.id, label: v.apelido || v.nomeCompleto }))} value={form.vendedorId} onChange={(e) => setForm({ ...form, vendedorId: e.target.value })} /></Field>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: gridCols(isMobile, "1fr 1fr 1fr"), gap: 10 }}>
+            <Field label="Estágio"><Select options={ESTAGIOS_CRM} value={form.estagio} onChange={(e) => setForm({ ...form, estagio: e.target.value })} /></Field>
+            <Field label="Valor potencial (R$/mês ou total)"><TextInput type="number" step="0.01" value={form.valorPotencial} onChange={(e) => setForm({ ...form, valorPotencial: e.target.value })} /></Field>
+            <Field label="Próximo follow-up"><TextInput type="date" value={form.proximoContato} onChange={(e) => setForm({ ...form, proximoContato: e.target.value })} /></Field>
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <Button type="submit">{editandoId ? "Salvar alteração" : "Criar lead"}</Button>
+            {editandoId && <Button type="button" variant="ghost" onClick={() => { setForm(blankLead); setEditandoId(null); }}>Cancelar</Button>}
+          </div>
+        </form>
+      </Card>
+
+      <Card title={`Pipeline (${leads.length})`}>
+        <FilterableTable
+          searchPlaceholder="Buscar por nome, empresa ou vendedor…"
+          searchFields={["nome", "empresa", "origem", (r) => nomeVendedor(r.vendedorId)]}
+          emptyText="Nenhum lead cadastrado ainda."
+          onEdit={editarLead}
+          onDelete={removerLead}
+          columns={[
+            { key: "nome", label: "Contato", render: (r) => <span>{r.nome}<br /><span style={{ fontSize: 10.5, color: MUTED }}>{r.empresa}</span></span> },
+            { key: "estagio", label: "Estágio", render: (r) => <Select options={ESTAGIOS_CRM} value={r.estagio} onChange={(e) => mudarEstagio(r, e.target.value)} /> },
+            { key: "valorPotencial", label: "Valor potencial", render: (r) => brl(r.valorPotencial || 0) },
+            { key: "vendedorId", label: "Vendedor", render: (r) => nomeVendedor(r.vendedorId) },
+            { key: "proximoContato", label: "Próximo follow-up", render: (r) => r.proximoContato ? <span style={{ color: r.proximoContato <= hoje ? DANGER : INK, fontWeight: r.proximoContato <= hoje ? 700 : 400 }}>{r.proximoContato}</span> : "—" },
+            { key: "historico", label: "", render: (r) => <button onClick={() => setLeadDetalhe(r)} style={linkBtnStyle(GOLD)}>ver histórico</button> },
+          ]}
+          rows={[...leads].sort((a, b) => (a.proximoContato || "9999") < (b.proximoContato || "9999") ? -1 : 1)}
+        />
+      </Card>
+
+      {leadDetalhe && (
+        <Modal title={`Histórico — ${leadDetalhe.nome}`} onClose={() => setLeadDetalhe(null)} wide>
+          <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 16 }}>
+            {interacoesDoLead(leadDetalhe.id).map((i) => (
+              <div key={i.id} style={{ border: `1px solid ${BORDER}`, borderRadius: 8, padding: 10 }}>
+                <div style={{ fontSize: 11.5, fontWeight: 700, color: GREEN }}>{i.tipo} — {i.data} {i.responsavel && `— ${i.responsavel}`}</div>
+                <div style={{ fontSize: 12.5, marginTop: 3 }}>{i.notas}</div>
+                {i.proximaAcao && <div style={{ fontSize: 11, color: GOLD, marginTop: 3 }}>Próxima ação: {i.proximaAcao}</div>}
+              </div>
+            ))}
+            {!interacoesDoLead(leadDetalhe.id).length && <div style={{ fontSize: 12.5, color: MUTED }}>Nenhuma interação registrada ainda.</div>}
+          </div>
+          <div style={{ borderTop: `1px solid ${BORDER}`, paddingTop: 14 }}>
+            <div style={{ fontSize: 12.5, fontWeight: 700, marginBottom: 8 }}>Registrar nova interação</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 8 }}>
+              <Field label="Tipo"><Select options={TIPOS_INTERACAO.map((t) => ({ value: t, label: t }))} value={novaInteracao.tipo} onChange={(e) => setNovaInteracao({ ...novaInteracao, tipo: e.target.value })} /></Field>
+              <Field label="Data"><TextInput type="date" value={novaInteracao.data} onChange={(e) => setNovaInteracao({ ...novaInteracao, data: e.target.value })} /></Field>
+              <Field label="Responsável"><TextInput value={novaInteracao.responsavel} onChange={(e) => setNovaInteracao({ ...novaInteracao, responsavel: e.target.value })} /></Field>
+            </div>
+            <Field label="O que foi tratado"><TextInput value={novaInteracao.notas} onChange={(e) => setNovaInteracao({ ...novaInteracao, notas: e.target.value })} /></Field>
+            <div style={{ marginTop: 8 }}><Field label="Próxima ação (opcional)"><TextInput value={novaInteracao.proximaAcao} onChange={(e) => setNovaInteracao({ ...novaInteracao, proximaAcao: e.target.value })} /></Field></div>
+            <Button style={{ marginTop: 10 }} onClick={registrarInteracao}>Adicionar</Button>
+          </div>
+          <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 16 }}><Button variant="ghost" onClick={() => setLeadDetalhe(null)}>Fechar</Button></div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+/* ================= Contratos de Fornecimento ================= */
+/* Diferente do CRM (pipeline de prospecção): aqui é o cliente grande já fechado,
+   com preço fixado por período, volume mínimo mensal e penalidade de descumprimento. */
+function ContratosFornecimento({ db, update, filialId }) {
+  const clientes = db.clientes.filter((c) => c.filialId === filialId);
+  const contratos = db.contratosFornecimento.filter((c) => c.filialId === filialId);
+  const vendas = db.vendas.filter((v) => v.filialId === filialId);
+  const hoje = todayISO();
+  const inicioMes = primeiroDiaDoMes();
+
+  const volumeVendidoMesAtual = (clienteId) => vendas
+    .filter((v) => v.clienteId === clienteId && v.data >= inicioMes)
+    .reduce((s, v) => s + (v.itens || []).reduce((s2, it) => s2 + Number(it.qtd || 0), 0), 0);
+
+  const contratosComStatus = contratos.map((c) => {
+    const diasParaVencer = c.dataFim ? Math.round((new Date(c.dataFim + "T00:00:00") - new Date(hoje + "T00:00:00")) / 86400000) : null;
+    const volumeMes = volumeVendidoMesAtual(c.clienteId);
+    const minimoOk = c.volumeMinimoMensal ? volumeMes >= Number(c.volumeMinimoMensal) : null;
+    return { ...c, diasParaVencer, volumeMes, minimoOk };
+  });
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div style={{ background: "#EAF3EC", border: `1px solid ${GREEN}33`, borderRadius: 10, padding: "12px 14px", fontSize: 12.5, color: INK }}>
+        Para gerenciar um cliente já fechado (preço fixado, volume mínimo, penalidade) — diferente do CRM, que é para prospecção de novos leads.
+      </div>
+
+      <CrudBlock
+        title="Contratos de Fornecimento" subtitle="Preço fixado por período, volume mínimo mensal e penalidade de descumprimento, por cliente." filialId={filialId}
+        items={contratos} onChange={(items) => update((prev) => ({ ...prev, contratosFornecimento: mergeByFilial(prev.contratosFornecimento, items, filialId) }))}
+        fields={[
+          { key: "clienteId", label: "Cliente", type: "select", options: clientes.map((c) => ({ value: c.id, label: c.razaoSocial })), required: true },
+          { key: "dataInicio", label: "Início do contrato", type: "date", required: true },
+          { key: "dataFim", label: "Fim do contrato", type: "date" },
+          { key: "precoFixado", label: "Preço fixado (R$/dúzia)", type: "number" },
+          { key: "volumeMinimoMensal", label: "Volume mínimo mensal (dúzias)", type: "number" },
+          { key: "penalidadeDescumprimento", label: "Penalidade por descumprimento" },
+          { key: "condicoesReajuste", label: "Condições de reajuste" },
+          { key: "status", label: "Status", type: "select", options: [{ value: "ativo", label: "Ativo" }, { value: "suspenso", label: "Suspenso" }, { value: "encerrado", label: "Encerrado" }] },
+          { key: "anexoContrato", label: "Anexo do contrato (PDF/imagem)", type: "file" },
+        ]}
+        columns={[
+          { key: "clienteId", label: "Cliente", render: (r) => clientes.find((c) => c.id === r.clienteId)?.razaoSocial || "—" },
+          { key: "precoFixado", label: "Preço/dúzia", render: (r) => (r.precoFixado ? brl(r.precoFixado) : "—") },
+          { key: "volumeMinimoMensal", label: "Volume mín./mês", render: (r) => (r.volumeMinimoMensal ? Number(r.volumeMinimoMensal).toLocaleString("pt-BR") : "—") },
+          { key: "dataFim", label: "Vigência até" },
+          { key: "status", label: "Status", render: (r) => (r.status === "encerrado" ? "Encerrado" : r.status === "suspenso" ? "Suspenso" : "Ativo") },
+        ]}
+      />
+
+      <Card title="Acompanhamento — vigência e volume mensal" subtitle="Dias até o fim da vigência e se o volume vendido no mês corrente já atingiu o mínimo contratado.">
+        <Table
+          columns={[
+            { key: "clienteId", label: "Cliente", render: (r) => clientes.find((c) => c.id === r.clienteId)?.razaoSocial || "—" },
+            {
+              key: "diasParaVencer", label: "Vigência", render: (r) => {
+                if (r.diasParaVencer === null) return "—";
+                const cor = r.diasParaVencer < 0 ? DANGER : r.diasParaVencer <= 30 ? GOLD : SUCCESS;
+                const texto = r.diasParaVencer < 0 ? `Vencido há ${Math.abs(r.diasParaVencer)} dia(s)` : `${r.diasParaVencer} dia(s) restantes`;
+                return <span style={{ color: cor, fontWeight: 700 }}>{texto}</span>;
+              },
+            },
+            { key: "volumeMes", label: "Vendido no mês", render: (r) => Number(r.volumeMes || 0).toLocaleString("pt-BR") },
+            { key: "volumeMinimoMensal", label: "Mínimo contratado", render: (r) => (r.volumeMinimoMensal ? Number(r.volumeMinimoMensal).toLocaleString("pt-BR") : "—") },
+            {
+              key: "minimoOk", label: "Situação do mínimo", render: (r) => {
+                if (r.minimoOk === null) return "—";
+                return r.minimoOk ? <span style={{ color: SUCCESS, fontWeight: 700 }}>Cumprido</span> : <span style={{ color: DANGER, fontWeight: 700 }}>Abaixo do mínimo</span>;
+              },
+            },
+          ]}
+          rows={contratosComStatus}
+          emptyText="Nenhum contrato cadastrado ainda."
+        />
+      </Card>
+    </div>
+  );
+}
+
+/* ================= Segurança & Visitantes ================= */
+/* Escala de turnos da segurança + controle de acesso de veículos e visitantes:
+   quem entrou, de qual empresa, documento, foto, motivo e horário de saída. */
+function SegurancaVisitantes({ db, update, filialId }) {
+  const isMobile = useIsMobile();
+  const vigilantes = db.funcionarios.filter((f) => f.filialId === filialId && (f.ativo === "true" || f.ativo === true) && /segur|vigilan/i.test(f.cargo || ""));
+  const escala = db.escalaSeguranca.filter((e) => e.filialId === filialId);
+  const visitantes = db.visitantes.filter((v) => v.filialId === filialId);
+  const hoje = todayISO();
+
+  const blankEscala = { data: hoje, turno: "manha", vigilanteNome: "", status: "presente" };
+  const [formEscala, setFormEscala] = useState(blankEscala);
+  function salvarEscala(e) {
+    e.preventDefault();
+    if (!formEscala.vigilanteNome) return;
+    update((prev) => ({ ...prev, escalaSeguranca: [...prev.escalaSeguranca, { ...formEscala, id: uid(), filialId }] }));
+    setFormEscala(blankEscala);
+  }
+  function removerEscala(r) { update((prev) => ({ ...prev, escalaSeguranca: prev.escalaSeguranca.filter((x) => x.id !== r.id) })); }
+
+  const blankVisitante = { dataEntrada: hoje, horaEntrada: "", horaSaida: "", nomeVisitante: "", empresaVisitante: "", rg: "", cpf: "", foto: null, motivoVisita: "", veiculoPlaca: "", destinoSetor: "", autorizadoPor: "" };
+  const [formVisitante, setFormVisitante] = useState(blankVisitante);
+  function fotoVisitante(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    e.target.value = "";
+    comprimirImagem(file, 300, 0.6).then((r) => setFormVisitante((f) => ({ ...f, foto: r }))).catch((err) => alert(err.message));
+  }
+  function registrarVisitante(e) {
+    e.preventDefault();
+    if (!formVisitante.nomeVisitante) return;
+    update((prev) => ({ ...prev, visitantes: [...prev.visitantes, { ...formVisitante, id: uid(), filialId }] }));
+    setFormVisitante(blankVisitante);
+  }
+  function registrarSaida(v) {
+    const agora = new Date().toTimeString().slice(0, 5);
+    update((prev) => ({ ...prev, visitantes: prev.visitantes.map((x) => (x.id === v.id ? { ...x, horaSaida: agora } : x)) }));
+  }
+  function removerVisitante(v) { update((prev) => ({ ...prev, visitantes: prev.visitantes.filter((x) => x.id !== v.id) })); }
+
+  const naGranjaAgora = visitantes.filter((v) => v.dataEntrada === hoje && !v.horaSaida).length;
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
+        <StatCard label="Visitantes ainda na granja (hoje)" value={naGranjaAgora} accent={naGranjaAgora ? GOLD : SUCCESS} />
+        <StatCard label="Visitas registradas no total" value={visitantes.length} accent={GREEN} />
+      </div>
+
+      <Card title="Escala de segurança">
+        <form onSubmit={salvarEscala} style={{ display: "grid", gridTemplateColumns: gridCols(isMobile, "1fr 1fr 1fr 1fr auto"), gap: 10, alignItems: "end", marginBottom: 14 }}>
+          <Field label="Data"><TextInput type="date" value={formEscala.data} onChange={(e) => setFormEscala({ ...formEscala, data: e.target.value })} /></Field>
+          <Field label="Turno"><Select options={[{ value: "manha", label: "Manhã" }, { value: "tarde", label: "Tarde" }, { value: "noite", label: "Noite" }]} value={formEscala.turno} onChange={(e) => setFormEscala({ ...formEscala, turno: e.target.value })} /></Field>
+          <Field label="Vigilante"><Select options={vigilantes.map((v) => ({ value: v.nome, label: v.nome }))} value={formEscala.vigilanteNome} onChange={(e) => setFormEscala({ ...formEscala, vigilanteNome: e.target.value })} /></Field>
+          <Field label="Status"><Select options={[{ value: "presente", label: "Presente" }, { value: "falta", label: "Falta" }, { value: "folga", label: "Folga" }]} value={formEscala.status} onChange={(e) => setFormEscala({ ...formEscala, status: e.target.value })} /></Field>
+          <Button type="submit">Adicionar</Button>
+        </form>
+        <FilterableTable
+          searchPlaceholder="Buscar por vigilante…"
+          searchFields={["vigilanteNome", "turno"]}
+          dateField="data"
+          emptyText="Nenhuma escala lançada ainda."
+          onDelete={removerEscala}
+          columns={[
+            { key: "data", label: "Data" },
+            { key: "turno", label: "Turno", render: (r) => ({ manha: "Manhã", tarde: "Tarde", noite: "Noite" }[r.turno]) },
+            { key: "vigilanteNome", label: "Vigilante" },
+            { key: "status", label: "Status", render: (r) => <span style={{ color: r.status === "presente" ? SUCCESS : r.status === "falta" ? DANGER : MUTED, fontWeight: 700 }}>{({ presente: "Presente", falta: "Falta", folga: "Folga" })[r.status]}</span> },
+          ]}
+          rows={[...escala].sort((a, b) => (a.data < b.data ? 1 : -1))}
+        />
+      </Card>
+
+      <Card title="Registrar entrada de visitante/veículo">
+        <form onSubmit={registrarVisitante} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          <div style={{ display: "grid", gridTemplateColumns: gridCols(isMobile, "1fr 1fr 1fr"), gap: 10 }}>
+            <Field label="Data"><TextInput type="date" value={formVisitante.dataEntrada} onChange={(e) => setFormVisitante({ ...formVisitante, dataEntrada: e.target.value })} /></Field>
+            <Field label="Hora de entrada"><TextInput type="time" value={formVisitante.horaEntrada} onChange={(e) => setFormVisitante({ ...formVisitante, horaEntrada: e.target.value })} /></Field>
+            <Field label="Placa do veículo"><TextInput value={formVisitante.veiculoPlaca} onChange={(e) => setFormVisitante({ ...formVisitante, veiculoPlaca: e.target.value })} /></Field>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: gridCols(isMobile, "1fr 1fr"), gap: 10 }}>
+            <Field label="Nome do visitante"><TextInput value={formVisitante.nomeVisitante} onChange={(e) => setFormVisitante({ ...formVisitante, nomeVisitante: e.target.value })} /></Field>
+            <Field label="Empresa que representa"><TextInput value={formVisitante.empresaVisitante} onChange={(e) => setFormVisitante({ ...formVisitante, empresaVisitante: e.target.value })} /></Field>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: gridCols(isMobile, "1fr 1fr"), gap: 10 }}>
+            <Field label="RG"><TextInput value={formVisitante.rg} onChange={(e) => setFormVisitante({ ...formVisitante, rg: e.target.value })} /></Field>
+            <Field label="CPF"><TextInput value={formVisitante.cpf} onChange={(e) => setFormVisitante({ ...formVisitante, cpf: e.target.value })} /></Field>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: gridCols(isMobile, "1fr 1fr"), gap: 10 }}>
+            <Field label="Motivo da visita"><TextInput value={formVisitante.motivoVisita} onChange={(e) => setFormVisitante({ ...formVisitante, motivoVisita: e.target.value })} /></Field>
+            <Field label="Setor/quem vai visitar"><TextInput value={formVisitante.destinoSetor} onChange={(e) => setFormVisitante({ ...formVisitante, destinoSetor: e.target.value })} /></Field>
+          </div>
+          <Field label="Autorizado por"><TextInput value={formVisitante.autorizadoPor} onChange={(e) => setFormVisitante({ ...formVisitante, autorizadoPor: e.target.value })} /></Field>
+          <div>
+            <div style={{ fontSize: 12.5, fontWeight: 700, color: MUTED, marginBottom: 6 }}>Foto do visitante</div>
+            <input type="file" accept="image/*" capture="environment" onChange={fotoVisitante} style={{ fontSize: 12.5 }} />
+            {formVisitante.foto && <img src={formVisitante.foto.dataUrl} alt="" style={{ width: 70, height: 70, objectFit: "cover", borderRadius: 8, marginTop: 8, border: `1px solid ${BORDER}` }} />}
+          </div>
+          <div><Button type="submit">Registrar entrada</Button></div>
+        </form>
+      </Card>
+
+      <Card title={`Visitantes (${visitantes.length})`}>
+        <FilterableTable
+          searchPlaceholder="Buscar por nome, empresa, CPF ou placa…"
+          searchFields={["nomeVisitante", "empresaVisitante", "cpf", "veiculoPlaca", "motivoVisita"]}
+          dateField="dataEntrada"
+          emptyText="Nenhum visitante registrado ainda."
+          onDelete={removerVisitante}
+          columns={[
+            { key: "foto", label: "Foto", render: (r) => (r.foto ? <img src={r.foto.dataUrl} alt="" style={{ width: 36, height: 36, objectFit: "cover", borderRadius: 6 }} /> : "—") },
+            { key: "nomeVisitante", label: "Visitante", render: (r) => <span>{r.nomeVisitante}<br /><span style={{ fontSize: 10.5, color: MUTED }}>{r.empresaVisitante}</span></span> },
+            { key: "cpf", label: "CPF/RG", render: (r) => <span style={{ fontSize: 11 }}>{r.cpf}<br />{r.rg}</span> },
+            { key: "dataEntrada", label: "Entrada", render: (r) => <span>{r.dataEntrada} {r.horaEntrada}</span> },
+            { key: "horaSaida", label: "Saída", render: (r) => (r.horaSaida ? r.horaSaida : <button onClick={() => registrarSaida(r)} style={linkBtnStyle(DANGER)}>registrar saída</button>) },
+            { key: "motivoVisita", label: "Motivo / destino", render: (r) => <span style={{ fontSize: 11 }}>{r.motivoVisita}<br />{r.destinoSetor}</span> },
+            { key: "veiculoPlaca", label: "Placa" },
+            { key: "autorizadoPor", label: "Autorizado por" },
+          ]}
+          rows={[...visitantes].sort((a, b) => (a.dataEntrada < b.dataEntrada ? 1 : -1))}
+        />
+      </Card>
     </div>
   );
 }
