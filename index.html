@@ -132,6 +132,7 @@ const emptyDB = () => ({
   orcamentos: [],
   lotesProduto: [],
   logsAuditoria: [],
+  posicoesFrete: [],
 });
 
 const MODULES = [
@@ -861,6 +862,14 @@ function Danfe({ venda, empresa, filial, cliente, produtos }) {
         <div style={{ fontSize: 9.5 }}>CPF/CNPJ: {cliente?.cpfCnpj || "—"} &nbsp;&nbsp; IE: {cliente?.inscricaoEstadual || "—"}</div>
         <div style={{ fontSize: 9.5 }}>{[cliente?.endereco, cliente?.numero, cliente?.bairro].filter(Boolean).join(", ") || "—"} — {[cliente?.cidade, cliente?.uf].filter(Boolean).join("/")}</div>
       </div>
+      {venda.entrega && venda.entrega.modalidadeFrete && venda.entrega.modalidadeFrete !== "sem_frete" && (
+        <div style={{ padding: "6px 10px", borderBottom: "1px solid #111", fontSize: 9.5 }}>
+          <div style={{ fontWeight: 700, marginBottom: 2 }}>DADOS DO TRANSPORTE</div>
+          <div>Modalidade do frete: <b>{{ cif_gratis: "0 — Contratação por conta do remetente (CIF), sem custo destacado", cif_destacado: "0 — Contratação por conta do remetente (CIF), com valor destacado", fob: "1 — Contratação por conta do destinatário (FOB)" }[venda.entrega.modalidadeFrete]}</b></div>
+          {venda.entrega.valorFrete > 0 && <div>Valor do frete: {brl(venda.entrega.valorFrete)}</div>}
+          <div>Endereço de entrega: {venda.entrega.enderecoEntrega || "—"}</div>
+        </div>
+      )}
       <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 9 }}>
         <thead>
           <tr style={{ background: "#eee" }}>
@@ -887,8 +896,14 @@ function Danfe({ venda, empresa, filial, cliente, produtos }) {
           })}
         </tbody>
       </table>
-      <div style={{ display: "flex", justifyContent: "flex-end", padding: "8px 10px", fontSize: 11, fontWeight: 800 }}>
-        VALOR TOTAL DA NOTA: {brl(venda.total)}
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", padding: "8px 10px", fontSize: 10.5 }}>
+        {venda.entrega?.valorFrete > 0 && (
+          <>
+            <div>Valor dos produtos: {brl(venda.total - venda.entrega.valorFrete)}</div>
+            <div>Valor do frete: {brl(venda.entrega.valorFrete)}</div>
+          </>
+        )}
+        <div style={{ fontWeight: 800, fontSize: 11, marginTop: 2 }}>VALOR TOTAL DA NOTA: {brl(venda.total)}</div>
       </div>
       <div style={{ textAlign: "center", fontSize: 8.5, color: "#555", padding: "6px 10px", borderTop: "1px solid #111" }}>
         Documento gerado pelo AVISOFT em ambiente de homologação — não substitui a DANFE oficial emitida após autorização real da SEFAZ.
@@ -1621,7 +1636,7 @@ function ModuleView({ activeModule, db, update, conn, filialId, empresaId, usuar
     case "logistica":
       return <Logistica db={db} update={update} filialId={filialId} />;
     case "rotasfrete":
-      return <RotasDeEntrega db={db} update={update} filialId={filialId} />;
+      return <RotasDeEntrega db={db} update={update} filialId={filialId} conn={conn} />;
     case "fiscal":
       return <Fiscal db={db} update={update} filialId={filialId} />;
     case "folha":
@@ -2184,7 +2199,7 @@ function Vendas({ db, update, filialId }) {
   const filial = empresa?.filiais.find((f) => f.id === filialId);
   const [danfeVenda, setDanfeVenda] = useState(null);
 
-  const [form, setForm] = useState({ data: todayISO(), clienteId: "", vendedorId: "", produtoId: "", qtd: "", precoUnit: "", condicaoPagamento: "vista_pix", centroCustoId: "" });
+  const [form, setForm] = useState({ data: todayISO(), clienteId: "", vendedorId: "", produtoId: "", qtd: "", precoUnit: "", condicaoPagamento: "vista_pix", centroCustoId: "", modalidadeFrete: "sem_frete", enderecoEntrega: "", valorFrete: "" });
   const clienteSelecionado = clientes.find((c) => c.id === form.clienteId);
   const produtoSelecionado = produtos.find((p) => p.id === form.produtoId);
   const cfopPreview = determinarCFOP(empresa?.tipoEmpresa, filial?.uf, clienteSelecionado?.uf, ehSim(produtoSelecionado?.residuo), produtoSelecionado?.controleTipo === "imobilizado");
@@ -2194,10 +2209,18 @@ function Vendas({ db, update, filialId }) {
     setForm((f) => ({ ...f, produtoId, precoUnit: p ? p.precoVenda : "" }));
   }
 
+  function clienteAoEscolher(clienteId) {
+    const c = clientes.find((x) => x.id === clienteId);
+    const enderecoCliente = c ? [c.endereco, c.numero, c.bairro, c.cidade, c.uf].filter(Boolean).join(", ") : "";
+    setForm((f) => ({ ...f, clienteId, enderecoEntrega: f.enderecoEntrega || enderecoCliente }));
+  }
+
   function lancarVenda(e) {
     e.preventDefault();
     const vendedor = vendedores.find((v) => v.id === form.vendedorId);
-    const total = Number(form.qtd || 0) * Number(form.precoUnit || 0);
+    const totalProdutos = Number(form.qtd || 0) * Number(form.precoUnit || 0);
+    const freteDestacado = form.modalidadeFrete === "cif_destacado" ? Number(form.valorFrete) || 0 : 0;
+    const total = totalProdutos + freteDestacado;
     const comissaoValor = vendedor ? total * (Number(vendedor.percentualComissao || 0) / 100) : 0;
     let comissaoGerenteValor = 0;
     let gerenteComercialId = null;
@@ -2217,13 +2240,19 @@ function Vendas({ db, update, filialId }) {
       total, comissaoValor, gerenteComercialId, comissaoGerenteValor,
       condicaoPagamento: condicao, centroCustoId: form.centroCustoId || "",
       parcelas, nfe: null,
+      entrega: {
+        modalidadeFrete: form.modalidadeFrete,
+        enderecoEntrega: form.modalidadeFrete === "sem_frete" ? "" : form.enderecoEntrega,
+        valorFrete: freteDestacado,
+        status: form.modalidadeFrete === "sem_frete" ? "" : "aguardando",
+      },
     };
     update((prev) => ({
       ...prev,
       vendas: [...prev.vendas, venda],
       movimentacoesEstoque: [...prev.movimentacoesEstoque, { id: uid(), filialId, data: form.data, produtoId: form.produtoId, tipo: "saida", qtd: Number(form.qtd), motivo: "Venda", origem: "venda:" + venda.id }],
     }));
-    setForm({ data: todayISO(), clienteId: "", vendedorId: "", produtoId: "", qtd: "", precoUnit: "", condicaoPagamento: "vista_pix", centroCustoId: "" });
+    setForm({ data: todayISO(), clienteId: "", vendedorId: "", produtoId: "", qtd: "", precoUnit: "", condicaoPagamento: "vista_pix", centroCustoId: "", modalidadeFrete: "sem_frete", enderecoEntrega: "", valorFrete: "" });
   }
 
   function atualizarParcela(vendaId, parcelaId, status) {
@@ -2285,7 +2314,7 @@ function Vendas({ db, update, filialId }) {
       <Card title="Lançar venda" subtitle="Gera parcelas conforme a condição de pagamento, alimenta contas a receber, comissões e a DRE. O CFOP é calculado automaticamente pelo tipo da empresa (Empresa & Filiais) e pelo UF do cliente.">
         <form onSubmit={lancarVenda} style={{ display: "grid", gridTemplateColumns: gridCols(isMobile, "repeat(4, 1fr)"), gap: 10, alignItems: "end" }}>
           <Field label="Data"><TextInput type="date" value={form.data} onChange={(e) => setForm({ ...form, data: e.target.value })} /></Field>
-          <Field label="Cliente"><Select options={clientes.map((c) => ({ value: c.id, label: c.razaoSocial }))} value={form.clienteId} onChange={(e) => setForm({ ...form, clienteId: e.target.value })} /></Field>
+          <Field label="Cliente"><Select options={clientes.map((c) => ({ value: c.id, label: c.razaoSocial }))} value={form.clienteId} onChange={(e) => clienteAoEscolher(e.target.value)} /></Field>
           <Field label="Vendedor"><Select options={vendedores.filter((v) => v.ativo !== false && v.ativo !== "false").map((v) => ({ value: v.id, label: v.apelido || v.nomeCompleto }))} value={form.vendedorId} onChange={(e) => setForm({ ...form, vendedorId: e.target.value })} /></Field>
           <Field label="Produto"><Select options={produtos.map((p) => ({ value: p.id, label: p.nome }))} value={form.produtoId} onChange={(e) => precoAoEscolher(e.target.value)} /></Field>
           <Field label="Qtd"><TextInput type="number" step="0.01" value={form.qtd} onChange={(e) => setForm({ ...form, qtd: e.target.value })} /></Field>
@@ -2298,6 +2327,23 @@ function Vendas({ db, update, filialId }) {
               {cfopPreview} {cfopPreview.startsWith("6") ? "— interestadual" : "— estadual"}
             </div>
           </div>
+          <Field label="Frete / entrega">
+            <Select
+              options={[
+                { value: "sem_frete", label: "Sem frete (cliente retira)" },
+                { value: "cif_gratis", label: "CIF — grátis, incluso no preço" },
+                { value: "cif_destacado", label: "CIF — cobrado à parte (destacado na NF-e)" },
+                { value: "fob", label: "FOB — por conta do destinatário" },
+              ]}
+              value={form.modalidadeFrete} onChange={(e) => setForm({ ...form, modalidadeFrete: e.target.value })}
+            />
+          </Field>
+          {form.modalidadeFrete !== "sem_frete" && (
+            <Field label="Endereço de entrega"><TextInput value={form.enderecoEntrega} onChange={(e) => setForm({ ...form, enderecoEntrega: e.target.value })} placeholder="Preenchido a partir do cliente — edite se for outro endereço" /></Field>
+          )}
+          {form.modalidadeFrete === "cif_destacado" && (
+            <Field label="Valor do frete (R$)"><TextInput type="number" step="0.01" value={form.valorFrete} onChange={(e) => setForm({ ...form, valorFrete: e.target.value })} /></Field>
+          )}
           <div style={{ gridColumn: "1 / -1" }}><Button type="submit">Lançar venda</Button></div>
         </form>
       </Card>
@@ -2311,6 +2357,16 @@ function Vendas({ db, update, filialId }) {
             { key: "produto", label: "Produto", render: (r) => nomeProduto(r.itens[0]?.produtoId) },
             { key: "cfop", label: "CFOP", render: (r) => r.itens[0]?.cfop || produtos.find((p) => p.id === r.itens[0]?.produtoId)?.cfop || "—" },
             { key: "total", label: "Total", render: (r) => brl(r.total) },
+            { key: "entrega", label: "Entrega", render: (r) => {
+              if (!r.entrega || r.entrega.modalidadeFrete === "sem_frete") return <span style={{ fontSize: 11, color: MUTED }}>Cliente retira</span>;
+              const rotulos = { cif_gratis: "CIF grátis", cif_destacado: "CIF destacado", fob: "FOB" };
+              return (
+                <div style={{ fontSize: 11 }}>
+                  <div style={{ fontWeight: 700 }}>{rotulos[r.entrega.modalidadeFrete] || r.entrega.modalidadeFrete}{r.entrega.valorFrete > 0 && <> — {brl(r.entrega.valorFrete)}</>}</div>
+                  <div style={{ color: MUTED }}>{r.entrega.status === "entregue" ? "Entregue" : "Aguardando entrega"}</div>
+                </div>
+              );
+            } },
             { key: "comissaoValor", label: "Comissão", render: (r) => <span>{brl(r.comissaoValor)}{r.comissaoGerenteValor > 0 && <><br /><span style={{ fontSize: 10.5, color: MUTED }}>+ gerente: {brl(r.comissaoGerenteValor)}</span></>}</span> },
             { key: "condicaoPagamento", label: "Condição", render: (r) => CONDICOES_PAGAMENTO.find((c) => c.value === r.condicaoPagamento)?.label || "—" },
             { key: "parcelas", label: "Parcelas / recebimento", render: (r) => <ParcelasList parcelas={r.parcelas} onStatusChange={(pid, st) => atualizarParcela(r.id, pid, st)} /> },
@@ -3535,10 +3591,30 @@ function formatarDuracao(min) {
   return h > 0 ? `${h}h${String(m).padStart(2, "0")}min` : `${m} min`;
 }
 
-function RotasDeEntrega({ db, update, filialId }) {
+function RotasDeEntrega({ db, update, filialId, conn }) {
   const isMobile = useIsMobile();
   const motoristas = db.motoristas.filter((m) => m.filialId === filialId);
   const veiculos = db.veiculos.filter((v) => v.filialId === filialId);
+  const clientes = db.clientes.filter((c) => c.filialId === filialId);
+
+  // Pedidos com entrega pendente (frete CIF/FOB lançado na venda, ainda não despachado)
+  const pedidosAguardando = db.vendas
+    .filter((v) => v.filialId === filialId && v.entrega && v.entrega.modalidadeFrete && v.entrega.modalidadeFrete !== "sem_frete" && v.entrega.status === "aguardando")
+    .map((v) => ({ ...v, clienteNome: clientes.find((c) => c.id === v.clienteId)?.razaoSocial || "—" }));
+  const pedidosEmRota = db.vendas
+    .filter((v) => v.filialId === filialId && v.entrega && v.entrega.status === "em_rota")
+    .map((v) => ({ ...v, clienteNome: clientes.find((c) => c.id === v.clienteId)?.razaoSocial || "—" }));
+  const [pedidosSelecionados, setPedidosSelecionados] = useState([]);
+
+  function alternarPedido(vendaId) {
+    setPedidosSelecionados((prev) => (prev.includes(vendaId) ? prev.filter((id) => id !== vendaId) : [...prev, vendaId]));
+  }
+  function adicionarPedidosComoParadas() {
+    const enderecos = pedidosAguardando.filter((p) => pedidosSelecionados.includes(p.id)).map((p) => p.entrega.enderecoEntrega).filter(Boolean);
+    if (!enderecos.length) return;
+    setParadas((prev) => [...prev, ...enderecos]);
+    setModo("proprio");
+  }
 
   const [libStatus, setLibStatus] = useState(window.L ? "pronto" : "carregando");
   useEffect(() => {
@@ -3656,26 +3732,112 @@ function RotasDeEntrega({ db, update, filialId }) {
     const valorCobrado = cobrado ? Number(registro.valorCobradoCliente) || 0 : 0;
     const destinoLabel = rota.pontos[rota.pontos.length - 1].nome;
     const destinoTexto = `${destinoLabel} — ${rota.distanciaKm.toFixed(1)} km / ${formatarDuracao(rota.duracaoMin)}`;
+    const freteId = uid();
     update((prev) => ({
       ...prev,
       fretes: [...prev.fretes, {
-        id: uid(), filialId, data: todayISO(), motoristaId: registro.motoristaId, veiculoId: registro.veiculoId,
+        id: freteId, filialId, data: todayISO(), motoristaId: registro.motoristaId, veiculoId: registro.veiculoId,
         destino: destinoTexto, valorFrete: Number(registro.valorFrete), statusPagamento: "pendente",
         cobradoCliente: cobrado, valorCobradoCliente: valorCobrado,
       }],
       contasAvulsas: cobrado && valorCobrado > 0
         ? [...prev.contasAvulsas, { id: uid(), filialId, tipo: "receber", descricao: `Frete cobrado do cliente — ${destinoTexto}`, valor: valorCobrado, vencimento: todayISO(), centroCustoId: "", status: "pendente" }]
         : prev.contasAvulsas,
+      // pedidos incluídos nessa rota passam de "aguardando" pra "em rota", já vinculados ao frete
+      vendas: pedidosSelecionados.length
+        ? prev.vendas.map((v) => (pedidosSelecionados.includes(v.id) ? { ...v, entrega: { ...v.entrega, status: "em_rota", freteId } } : v))
+        : prev.vendas,
     }));
     setRegistro({ motoristaId: "", veiculoId: "", valorFrete: "", cobradoCliente: "false", valorCobradoCliente: "" });
+    setPedidosSelecionados([]);
     alert(cobrado ? "Frete registrado — o custo entra como despesa e o valor cobrado do cliente entra como conta a receber." : "Frete registrado em Logística — entra como despesa na DRE.");
   }
+
+  function marcarEntregue(vendaId) {
+    update((prev) => ({ ...prev, vendas: prev.vendas.map((v) => (v.id === vendaId ? { ...v, entrega: { ...v.entrega, status: "entregue" } } : v)) }));
+  }
+
+  // ---- Modo motorista: compartilha a localização do celular a cada ~20s enquanto ativo ----
+  const [compartilhando, setCompartilhando] = useState(false);
+  const [motoristaAtivoId, setMotoristaAtivoId] = useState("");
+  const [freteAtivoId, setFreteAtivoId] = useState("");
+  const [ultimaPosicao, setUltimaPosicao] = useState(null);
+  const watchIdRef = useRef(null);
+  const ultimoEnvioRef = useRef(0);
+
+  function iniciarCompartilhamento() {
+    if (!motoristaAtivoId) { alert("Selecione qual motorista está com o celular, pra identificar a posição na rota."); return; }
+    if (!navigator.geolocation) { alert("Este navegador não tem suporte a geolocalização."); return; }
+    watchIdRef.current = navigator.geolocation.watchPosition(
+      (pos) => {
+        const agora = Date.now();
+        setUltimaPosicao({ lat: pos.coords.latitude, lon: pos.coords.longitude, timestamp: agora });
+        if (agora - ultimoEnvioRef.current < 20000) return; // envia no máximo a cada 20s, pra não sobrecarregar
+        ultimoEnvioRef.current = agora;
+        update((prev) => ({
+          ...prev,
+          posicoesFrete: [...prev.posicoesFrete, {
+            id: uid(), filialId, motoristaId: motoristaAtivoId, freteId: freteAtivoId || "",
+            lat: pos.coords.latitude, lon: pos.coords.longitude, precisao: pos.coords.accuracy, timestamp: agora,
+          }],
+        }));
+      },
+      (err) => { alert("Não foi possível obter a localização: " + err.message); setCompartilhando(false); },
+      { enableHighAccuracy: true, maximumAge: 15000, timeout: 20000 }
+    );
+    setCompartilhando(true);
+  }
+  function pararCompartilhamento() {
+    if (watchIdRef.current !== null) navigator.geolocation.clearWatch(watchIdRef.current);
+    watchIdRef.current = null;
+    setCompartilhando(false);
+  }
+  useEffect(() => () => { if (watchIdRef.current !== null) navigator.geolocation.clearWatch(watchIdRef.current); }, []);
+
+  // ---- Supervisor: últimas posições recebidas por motorista, nas últimas 3 horas ----
+  const posicoesRecentes = (db.posicoesFrete || []).filter((p) => p.filialId === filialId && Date.now() - p.timestamp < 3 * 3600 * 1000);
+  const ultimaPosicaoPorMotorista = {};
+  posicoesRecentes.forEach((p) => {
+    if (!ultimaPosicaoPorMotorista[p.motoristaId] || p.timestamp > ultimaPosicaoPorMotorista[p.motoristaId].timestamp) ultimaPosicaoPorMotorista[p.motoristaId] = p;
+  });
+  const motoristasEmRota = Object.keys(ultimaPosicaoPorMotorista);
+
+  // Atualização periódica das posições vindas de OUTRAS sessões (ex.: celular do motorista) —
+  // o AVISOFT não tem push em tempo real, então isso busca no banco a cada 20s enquanto essa tela
+  // está aberta. Só atualiza posicoesFrete e fretes, sem sobrescrever edições em outras telas.
+  useEffect(() => {
+    if (!conn || !conn.apiUrl) return;
+    const intervalo = setInterval(async () => {
+      try {
+        const fresh = await apiLoadDB(conn);
+        update((prev) => ({ ...prev, posicoesFrete: fresh.posicoesFrete || prev.posicoesFrete, fretes: fresh.fretes || prev.fretes }));
+      } catch (e) { /* silencioso — sem internet ou API fora do ar não deve travar a tela */ }
+    }, 20000);
+    return () => clearInterval(intervalo);
+  }, [conn]);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <div style={{ background: "#FBF3DC", border: `1px solid ${GOLD_LIGHT}`, borderRadius: 10, padding: "10px 14px", fontSize: 12.5, color: "#6B5410" }}>
         Cálculo de rota, distância e tempo via OpenStreetMap (Nominatim + OSRM), gratuito e sem chave de API. Use endereços completos (rua, cidade, UF) para melhor precisão.
       </div>
+
+      {pedidosAguardando.length > 0 && (
+        <Card title={`Pedidos aguardando entrega (${pedidosAguardando.length})`} subtitle="Vendas com frete CIF/FOB lançadas em Vendas & Comissões, com endereço de entrega já preenchido. Selecione quais entram na rota de hoje.">
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {pedidosAguardando.map((p) => (
+              <label key={p.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", border: `1px solid ${BORDER}`, borderRadius: 8, cursor: "pointer" }}>
+                <input type="checkbox" checked={pedidosSelecionados.includes(p.id)} onChange={() => alternarPedido(p.id)} />
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700 }}>{p.clienteNome} — {brl(p.total)}</div>
+                  <div style={{ fontSize: 11.5, color: MUTED }}>{p.entrega.enderecoEntrega || "Endereço não informado"}</div>
+                </div>
+              </label>
+            ))}
+          </div>
+          <Button style={{ marginTop: 10 }} onClick={adicionarPedidosComoParadas} disabled={!pedidosSelecionados.length}>Adicionar {pedidosSelecionados.length || ""} selecionado(s) como paradas</Button>
+        </Card>
+      )}
 
       <Card title="Modo">
         <div style={{ display: "flex", gap: 10 }}>
@@ -3740,6 +3902,51 @@ function RotasDeEntrega({ db, update, filialId }) {
               </div>
             </div>
           )}
+        </Card>
+      )}
+
+      <Card title="Modo motorista — compartilhar localização" subtitle="Abra essa tela no celular da empresa (ou do motorista) durante a entrega. A posição é enviada a cada ~20 segundos enquanto estiver ativo.">
+        <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "end" }}>
+          <Field label="Motorista com o celular"><Select options={motoristas.map((m) => ({ value: m.id, label: m.apelido || m.nomeCompleto }))} value={motoristaAtivoId} onChange={(e) => setMotoristaAtivoId(e.target.value)} /></Field>
+          <Field label="Frete (opcional)"><Select options={db.fretes.filter((f) => f.filialId === filialId).slice(-15).reverse().map((f) => ({ value: f.id, label: `${f.data} — ${f.destino}`.slice(0, 40) }))} value={freteAtivoId} onChange={(e) => setFreteAtivoId(e.target.value)} /></Field>
+          {!compartilhando
+            ? <Button onClick={iniciarCompartilhamento}>Iniciar compartilhamento</Button>
+            : <Button variant="danger" onClick={pararCompartilhamento}>Parar compartilhamento</Button>}
+        </div>
+        {compartilhando && (
+          <div style={{ marginTop: 10, fontSize: 12.5, color: SUCCESS, fontWeight: 700 }}>
+            ● Compartilhando localização{ultimaPosicao ? ` — última posição às ${new Date(ultimaPosicao.timestamp).toLocaleTimeString("pt-BR")}` : " — aguardando sinal de GPS…"}
+          </div>
+        )}
+        <div style={{ fontSize: 11, color: MUTED, marginTop: 8 }}>
+          Usa a geolocalização do próprio navegador (celular) — não precisa de rastreador GPS instalado no caminhão. Se a granja já tem rastreador veicular de outro fornecedor, o caminho mais direto costuma ser importar a posição dele por uma API/webhook do próprio fornecedor, em vez de duplicar hardware.
+        </div>
+      </Card>
+
+      {motoristasEmRota.length > 0 && (
+        <Card title="Fretes em andamento — posição em tempo real">
+          <Table
+            columns={[
+              { key: "motorista", label: "Motorista", render: (id) => { const m = motoristas.find((x) => x.id === id); return m ? (m.apelido || m.nomeCompleto) : id; } },
+              { key: "posicao", label: "Última posição", render: (id) => { const p = ultimaPosicaoPorMotorista[id]; return `${p.lat.toFixed(5)}, ${p.lon.toFixed(5)}`; } },
+              { key: "atualizado", label: "Atualizado às", render: (id) => new Date(ultimaPosicaoPorMotorista[id].timestamp).toLocaleTimeString("pt-BR") },
+            ]}
+            rows={motoristasEmRota}
+          />
+          <div style={{ fontSize: 11, color: MUTED, marginTop: 8 }}>Essa lista atualiza sozinha a cada 20s. O AVISOFT não tem conexão em tempo real (não usa websocket) — é uma consulta periódica ao banco.</div>
+        </Card>
+      )}
+
+      {pedidosEmRota.length > 0 && (
+        <Card title={`Entregas em rota (${pedidosEmRota.length})`} subtitle="Marque como entregue quando o motorista confirmar a entrega ao cliente.">
+          <Table
+            columns={[
+              { key: "clienteNome", label: "Cliente" },
+              { key: "endereco", label: "Endereço", render: (r) => r.entrega.enderecoEntrega },
+              { key: "acao", label: "", render: (r) => <Button onClick={() => marcarEntregue(r.id)}>Marcar entregue</Button> },
+            ]}
+            rows={pedidosEmRota}
+          />
         </Card>
       )}
     </div>
