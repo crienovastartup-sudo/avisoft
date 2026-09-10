@@ -135,27 +135,28 @@ const emptyDB = () => ({
 });
 
 const MODULES = [
-  { key: "inicio", label: "Início", icon: "\u2302", always: true },
-  { key: "cadastro", label: "Empresa & Filiais", icon: "\u2698" },
-  { key: "usuarios", label: "Usuários & Permissões", icon: "\u2699" },
-  { key: "produtos", label: "Produtos & Embalagens", icon: "\u25A6" },
-  { key: "vendas", label: "Vendas & Comissões", icon: "\u2191" },
-  { key: "estoque", label: "Estoque de Produtos", icon: "\u25A3" },
-  { key: "almoxarifado", label: "Almoxarifado", icon: "\u25A6" },
-  { key: "imobilizado", label: "Imobilizado", icon: "\u2699" },
-  { key: "racao", label: "Fábrica de Ração", icon: "\u2698" },
-  { key: "compras", label: "Compras & Insumos", icon: "\u2193" },
-  { key: "financeiro", label: "Financeiro", icon: "$" },
-  { key: "centrocusto", label: "Centro de Custo", icon: "\u25C8" },
-  { key: "contabilidade", label: "Contabilidade", icon: "\u25A4" },
-  { key: "logistica", label: "Logística", icon: "\u2692" },
-  { key: "fiscal", label: "Fiscal (NFe/SPED)", icon: "\u2637" },
-  { key: "folha", label: "Folha de Pagamento", icon: "\u2696" },
-  { key: "relatorio", label: "Relatório Gerencial", icon: "\u25C9" },
-  { key: "producao", label: "Produção Avícola", icon: "\u2696" },
-  { key: "sensores", label: "Sensores / IoT", icon: "\u2699" },
-  { key: "logs", label: "Log de Auditoria", icon: "\u2637" },
-  { key: "forcavendas", label: "Força de Vendas", icon: "\u2191" },
+  { key: "inicio", label: "Início", icon: "🏠", always: true },
+  { key: "cadastro", label: "Empresa & Filiais", icon: "🏢" },
+  { key: "usuarios", label: "Usuários & Permissões", icon: "👤" },
+  { key: "produtos", label: "Produtos & Embalagens", icon: "🥚" },
+  { key: "vendas", label: "Vendas & Comissões", icon: "🛒" },
+  { key: "estoque", label: "Estoque de Produtos", icon: "📦" },
+  { key: "almoxarifado", label: "Almoxarifado", icon: "🧰" },
+  { key: "imobilizado", label: "Imobilizado", icon: "🚜" },
+  { key: "racao", label: "Fábrica de Ração", icon: "🌽" },
+  { key: "compras", label: "Compras & Insumos", icon: "📥" },
+  { key: "financeiro", label: "Financeiro", icon: "💵" },
+  { key: "centrocusto", label: "Centro de Custo", icon: "🎯" },
+  { key: "contabilidade", label: "Contabilidade", icon: "📚" },
+  { key: "logistica", label: "Logística", icon: "🚚" },
+  { key: "rotasfrete", label: "Rotas de Entrega", icon: "🗺️" },
+  { key: "fiscal", label: "Fiscal (NFe/SPED)", icon: "🧾" },
+  { key: "folha", label: "Folha de Pagamento", icon: "🧑‍🌾" },
+  { key: "relatorio", label: "Relatório Gerencial", icon: "📈" },
+  { key: "producao", label: "Produção Avícola", icon: "🐔" },
+  { key: "sensores", label: "Sensores / IoT", icon: "📡" },
+  { key: "logs", label: "Log de Auditoria", icon: "🕵️" },
+  { key: "forcavendas", label: "Força de Vendas", icon: "🎯" },
 ];
 
 /* -------- condições de pagamento & parcelamento -------- */
@@ -360,7 +361,7 @@ function GalinhaCarregando({ mensagem }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 18 }}>
       <div style={{ position: "relative", width: 90, height: 90, display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <div style={{ position: "absolute", width: 90, height: 90, border: "3px solid transparent", borderTopColor: GREEN, borderRadius: "50%", animation: "avisoftGiro 1.2s linear infinite" }} />
+        <div style={{ position: "absolute", width: 90, height: 90, border: "3px solid transparent", borderTopColor: GOLD, borderRightColor: GOLD_LIGHT, borderRadius: "50%", animation: "avisoftGiro 1.2s linear infinite", boxShadow: `0 0 14px ${GOLD_LIGHT}55` }} />
         <img
           src={GALINHA_ICON_DATA_URL}
           alt="Carregando"
@@ -385,6 +386,28 @@ function todayISO() {
 
 function primeiroDiaDoMes() {
   return todayISO().slice(0, 8) + "01";
+}
+
+/* Primeiro dia do mês, N meses atrás (ex.: 11 → janela padrão de 12 meses incluindo o mês corrente). */
+function mesesAtras(n) {
+  const d = new Date(todayISO() + "T00:00:00");
+  d.setDate(1);
+  d.setMonth(d.getMonth() - n);
+  return d.toISOString().slice(0, 10);
+}
+
+/* Desloca uma data ISO em N anos (N negativo = pra trás). */
+function deslocarAno(dataISO, n) {
+  const d = new Date(dataISO + "T00:00:00");
+  d.setFullYear(d.getFullYear() + n);
+  return d.toISOString().slice(0, 10);
+}
+
+/* Início do semestre civil (jan ou jul) que contém a data informada. */
+function inicioSemestre(dataISO) {
+  const d = new Date(dataISO + "T00:00:00");
+  const mesIni = d.getMonth() < 6 ? 0 : 6;
+  return new Date(d.getFullYear(), mesIni, 1).toISOString().slice(0, 10);
 }
 
 /* Lista de meses (YYYY-MM) entre duas datas ISO, inclusive. */
@@ -1414,16 +1437,19 @@ function Login({ db, onLogin }) {
   }
 
   return (
-    <div style={{ ...shell(), justifyContent: "center", alignItems: "center" }}>
-      <form onSubmit={submit} style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 14, padding: 32, width: 360, maxWidth: "92vw", display: "flex", flexDirection: "column", gap: 14 }}>
+    <div style={{ minHeight: "100vh", width: "100%", display: "flex", justifyContent: "center", alignItems: "center", background: `radial-gradient(circle at 30% 20%, ${GREEN_LIGHT} 0%, ${GREEN} 45%, ${GREEN_DARK} 100%)`, padding: 16 }}>
+      <form onSubmit={submit} style={{ background: CARD, borderRadius: 18, padding: "38px 32px 32px", width: 370, maxWidth: "92vw", display: "flex", flexDirection: "column", gap: 14, boxShadow: "0 24px 60px rgba(0,0,0,0.35)", border: `1px solid ${BORDER}` }}>
         <div style={{ display: "flex", justifyContent: "center", marginBottom: -4 }}>
-          <GalinhaLogo size={56} />
+          <div style={{ width: 84, height: 84, borderRadius: "50%", background: `linear-gradient(135deg, ${GOLD_LIGHT}33, ${GREEN}11)`, display: "flex", alignItems: "center", justifyContent: "center", border: `2px solid ${GOLD_LIGHT}66` }}>
+            <GalinhaLogo size={54} />
+          </div>
         </div>
-        <div style={{ fontSize: 26, fontWeight: 800, color: GREEN, textAlign: "center" }}>AVISOFT</div>
-        <div style={{ fontSize: 12.5, color: MUTED, marginBottom: 6, textAlign: "center" }}>Entre com seu usuário e senha.</div>
+        <div style={{ fontSize: 27, fontWeight: 800, color: GREEN, textAlign: "center", letterSpacing: 0.3 }}>AVI<span style={{ color: GOLD }}>SOFT</span></div>
+        <div style={{ fontSize: 11.5, color: MUTED, marginTop: -10, marginBottom: 6, textAlign: "center", letterSpacing: 0.6 }}>GESTÃO DE GRANJA DE POSTURA</div>
+        <div style={{ height: 3, width: 46, background: GOLD, borderRadius: 2, margin: "0 auto 8px" }} />
         <Field label="Login"><TextInput autoFocus value={login} onChange={(e) => setLogin(e.target.value)} /></Field>
         <Field label="Senha"><TextInput type="password" value={senha} onChange={(e) => setSenha(e.target.value)} /></Field>
-        {erro && <div style={{ color: DANGER, fontSize: 12.5 }}>{erro}</div>}
+        {erro && <div style={{ color: DANGER, fontSize: 12.5, background: "#FBEAE4", borderRadius: 8, padding: "6px 10px" }}>{erro}</div>}
         <Button type="submit" disabled={entrando}>{entrando ? "Entrando…" : "Entrar"}</Button>
       </form>
     </div>
@@ -1466,7 +1492,7 @@ function Sidebar({ modules, active, onSelect, empresa, filial, empresas, onSwitc
               fontWeight: active === m.key ? 800 : 600, fontSize: 13,
             }}
           >
-            <span style={{ width: 18, textAlign: "center", opacity: 0.9 }}>{m.icon}</span>
+            <span style={{ width: 26, textAlign: "center", fontSize: 18, lineHeight: 1, filter: active === m.key ? "none" : "grayscale(0.15)" }}>{m.icon}</span>
             {m.label}
           </button>
         ))}
@@ -1594,6 +1620,8 @@ function ModuleView({ activeModule, db, update, conn, filialId, empresaId, usuar
       return <Contabilidade db={db} filialId={filialId} />;
     case "logistica":
       return <Logistica db={db} update={update} filialId={filialId} />;
+    case "rotasfrete":
+      return <RotasDeEntrega db={db} update={update} filialId={filialId} />;
     case "fiscal":
       return <Fiscal db={db} update={update} filialId={filialId} />;
     case "folha":
@@ -3473,6 +3501,224 @@ function Logistica({ db, update, filialId }) {
   );
 }
 
+/* ---------------- Rotas de Entrega (frete próprio + retirada pelo cliente) ---------------- */
+
+function distanciaHaversineKm(lat1, lon1, lat2, lon2) {
+  const R = 6371;
+  const toRad = (d) => (d * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function formatarDuracao(min) {
+  const h = Math.floor(min / 60);
+  const m = Math.round(min % 60);
+  return h > 0 ? `${h}h${String(m).padStart(2, "0")}min` : `${m} min`;
+}
+
+function RotasDeEntrega({ db, update, filialId }) {
+  const isMobile = useIsMobile();
+  const motoristas = db.motoristas.filter((m) => m.filialId === filialId);
+  const veiculos = db.veiculos.filter((v) => v.filialId === filialId);
+
+  const [libStatus, setLibStatus] = useState(window.L ? "pronto" : "carregando");
+  useEffect(() => {
+    if (window.L) { setLibStatus("pronto"); return; }
+    if (!document.getElementById("leaflet-css")) {
+      const link = document.createElement("link");
+      link.id = "leaflet-css"; link.rel = "stylesheet";
+      link.href = "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css";
+      document.head.appendChild(link);
+    }
+    if (!document.getElementById("leaflet-js")) {
+      const script = document.createElement("script");
+      script.id = "leaflet-js";
+      script.src = "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js";
+      script.onload = () => setLibStatus("pronto");
+      script.onerror = () => setLibStatus("erro");
+      document.body.appendChild(script);
+    } else {
+      document.getElementById("leaflet-js").addEventListener("load", () => setLibStatus("pronto"));
+    }
+  }, []);
+
+  const [modo, setModo] = useState("proprio"); // "proprio" | "retira"
+  const [origem, setOrigem] = useState("Estrada da Pitanga, Igarassu, PE");
+  const [destino, setDestino] = useState("");
+  const [paradas, setParadas] = useState([]);
+  const [clienteEndereco, setClienteEndereco] = useState("");
+  const [rota, setRota] = useState(null); // { distanciaKm, duracaoMin, coordenadas, pontos }
+  const [carregando, setCarregando] = useState(false);
+  const [erro, setErro] = useState("");
+  const [registro, setRegistro] = useState({ motoristaId: "", veiculoId: "", valorFrete: "" });
+
+  const mapRef = useRef(null);
+  const mapInstance = useRef(null);
+  const layerRef = useRef(null);
+
+  async function geocodar(endereco) {
+    const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=br&q=${encodeURIComponent(endereco)}`;
+    const resp = await fetch(url, { headers: { "Accept-Language": "pt-BR" } });
+    if (!resp.ok) throw new Error("Serviço de geolocalização indisponível no momento.");
+    const dados = await resp.json();
+    if (!dados || !dados.length) throw new Error(`Endereço não encontrado: "${endereco}". Tente incluir cidade e estado.`);
+    return { lat: Number(dados[0].lat), lon: Number(dados[0].lon), nome: endereco };
+  }
+
+  async function calcularRotaPropria() {
+    setErro(""); setCarregando(true); setRota(null);
+    try {
+      const enderecos = [origem, ...paradas.filter((p) => p.trim()), destino].filter((e) => e && e.trim());
+      if (enderecos.length < 2) throw new Error("Informe ao menos o ponto de partida e o destino.");
+      const pontosGeo = [];
+      for (const end of enderecos) pontosGeo.push(await geocodar(end));
+      const coordsStr = pontosGeo.map((p) => `${p.lon},${p.lat}`).join(";");
+      const resp = await fetch(`https://router.project-osrm.org/route/v1/driving/${coordsStr}?overview=full&geometries=geojson`);
+      const dados = await resp.json();
+      if (!dados.routes || !dados.routes.length) throw new Error("Não foi possível calcular uma rota entre esses pontos.");
+      const r = dados.routes[0];
+      const coordenadas = r.geometry.coordinates.map(([lon, lat]) => [lat, lon]);
+      setRota({ distanciaKm: r.distance / 1000, duracaoMin: r.duration / 60, coordenadas, pontos: pontosGeo });
+    } catch (e) {
+      setErro(e.message || String(e));
+    } finally {
+      setCarregando(false);
+    }
+  }
+
+  async function calcularRetirada() {
+    setErro(""); setCarregando(true); setRota(null);
+    try {
+      if (!clienteEndereco.trim()) throw new Error("Informe o endereço do cliente que vai retirar a carga.");
+      const granja = await geocodar(origem);
+      const cliente = await geocodar(clienteEndereco);
+      const distKm = distanciaHaversineKm(granja.lat, granja.lon, cliente.lat, cliente.lon);
+      // sem rota definida pelo sistema (o cliente dirige até a granja por conta própria) — só a estimativa de distância/tempo, como no app de mobilidade
+      setRota({
+        distanciaKm: distKm, duracaoMin: (distKm / 45) * 60, semTraçado: true,
+        coordenadas: [[granja.lat, granja.lon], [cliente.lat, cliente.lon]],
+        pontos: [{ ...granja, nome: "Granja (retirada)" }, { ...cliente, nome: "Cliente" }],
+      });
+    } catch (e) {
+      setErro(e.message || String(e));
+    } finally {
+      setCarregando(false);
+    }
+  }
+
+  useEffect(() => {
+    if (libStatus !== "pronto" || !window.L || !mapRef.current) return;
+    if (!mapInstance.current) {
+      mapInstance.current = window.L.map(mapRef.current).setView([-7.83, -34.99], 10);
+      window.L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { attribution: "© OpenStreetMap", maxZoom: 19 }).addTo(mapInstance.current);
+    }
+    if (layerRef.current) { mapInstance.current.removeLayer(layerRef.current); layerRef.current = null; }
+    if (rota) {
+      const grupo = window.L.layerGroup();
+      window.L.polyline(rota.coordenadas, { color: GOLD, weight: 5, dashArray: rota.semTraçado ? "8 8" : null }).addTo(grupo);
+      rota.pontos.forEach((p, i) => {
+        const cor = i === 0 ? GREEN : i === rota.pontos.length - 1 ? DANGER : GOLD;
+        window.L.circleMarker([p.lat, p.lon], { radius: 8, color: "#fff", weight: 2, fillColor: cor, fillOpacity: 1 }).bindTooltip(p.nome, { permanent: false }).addTo(grupo);
+      });
+      grupo.addTo(mapInstance.current);
+      layerRef.current = grupo;
+      mapInstance.current.fitBounds(window.L.latLngBounds(rota.coordenadas), { padding: [30, 30] });
+    }
+  }, [rota, libStatus]);
+
+  function adicionarParada() { setParadas([...paradas, ""]); }
+  function atualizarParada(i, v) { const next = [...paradas]; next[i] = v; setParadas(next); }
+  function removerParada(i) { setParadas(paradas.filter((_, idx) => idx !== i)); }
+
+  function registrarComoFrete() {
+    if (!rota) return;
+    if (!registro.motoristaId || !registro.veiculoId || !registro.valorFrete) { alert("Selecione motorista, veículo e informe o valor pra registrar o frete."); return; }
+    const destinoLabel = rota.pontos[rota.pontos.length - 1].nome;
+    update((prev) => ({
+      ...prev,
+      fretes: [...prev.fretes, {
+        id: uid(), filialId, data: todayISO(), motoristaId: registro.motoristaId, veiculoId: registro.veiculoId,
+        destino: `${destinoLabel} — ${rota.distanciaKm.toFixed(1)} km / ${formatarDuracao(rota.duracaoMin)}`,
+        valorFrete: Number(registro.valorFrete), statusPagamento: "pendente",
+      }],
+    }));
+    setRegistro({ motoristaId: "", veiculoId: "", valorFrete: "" });
+    alert("Frete registrado em Logística — já entra como despesa na DRE.");
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div style={{ background: "#FBF3DC", border: `1px solid ${GOLD_LIGHT}`, borderRadius: 10, padding: "10px 14px", fontSize: 12.5, color: "#6B5410" }}>
+        Cálculo de rota, distância e tempo via OpenStreetMap (Nominatim + OSRM), gratuito e sem chave de API. Use endereços completos (rua, cidade, UF) para melhor precisão.
+      </div>
+
+      <Card title="Modo">
+        <div style={{ display: "flex", gap: 10 }}>
+          <button onClick={() => { setModo("proprio"); setRota(null); }} style={{ flex: 1, padding: "10px 14px", borderRadius: 10, border: `1px solid ${modo === "proprio" ? GOLD : BORDER}`, background: modo === "proprio" ? "#FBF3DC" : "#fff", fontWeight: 700, cursor: "pointer", color: INK }}>
+            🚚 Frete próprio — definir rota
+          </button>
+          <button onClick={() => { setModo("retira"); setRota(null); }} style={{ flex: 1, padding: "10px 14px", borderRadius: 10, border: `1px solid ${modo === "retira" ? GOLD : BORDER}`, background: modo === "retira" ? "#FBF3DC" : "#fff", fontWeight: 700, cursor: "pointer", color: INK }}>
+            📍 Cliente retira — sem definir rota
+          </button>
+        </div>
+      </Card>
+
+      {modo === "proprio" ? (
+        <Card title="Rota do frete próprio" subtitle="Ponto de partida, destino e paradas opcionais — a rota, distância e tempo são calculados automaticamente.">
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            <Field label="Ponto de partida"><TextInput value={origem} onChange={(e) => setOrigem(e.target.value)} /></Field>
+            {paradas.map((p, i) => (
+              <div key={i} style={{ display: "flex", gap: 8, alignItems: "end" }}>
+                <div style={{ flex: 1 }}><Field label={`Parada ${i + 1}`}><TextInput value={p} onChange={(e) => atualizarParada(i, e.target.value)} /></Field></div>
+                <button onClick={() => removerParada(i)} style={{ background: "none", border: `1px solid ${BORDER}`, borderRadius: 8, padding: "8px 10px", cursor: "pointer", color: DANGER }}>✕</button>
+              </div>
+            ))}
+            <button onClick={adicionarParada} style={{ alignSelf: "start", background: "none", border: `1px dashed ${BORDER}`, borderRadius: 8, padding: "6px 12px", fontSize: 12.5, cursor: "pointer", color: MUTED }}>+ adicionar parada</button>
+            <Field label="Destino final"><TextInput value={destino} onChange={(e) => setDestino(e.target.value)} /></Field>
+            <Button onClick={calcularRotaPropria} disabled={carregando}>{carregando ? "Calculando rota…" : "Calcular rota"}</Button>
+          </div>
+        </Card>
+      ) : (
+        <Card title="Cliente retira a carga" subtitle="Sem precisar traçar rota — mostra o ponto da granja e a distância/tempo estimado até o cliente, como num app de mobilidade.">
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            <Field label="Endereço da granja"><TextInput value={origem} onChange={(e) => setOrigem(e.target.value)} /></Field>
+            <Field label="Endereço do cliente"><TextInput value={clienteEndereco} onChange={(e) => setClienteEndereco(e.target.value)} placeholder="Rua, número, cidade, UF" /></Field>
+            <Button onClick={calcularRetirada} disabled={carregando}>{carregando ? "Localizando…" : "Localizar e estimar distância"}</Button>
+          </div>
+        </Card>
+      )}
+
+      {erro && <div style={{ color: DANGER, fontSize: 12.5, background: "#FBEAE4", borderRadius: 8, padding: "8px 12px" }}>{erro}</div>}
+
+      {rota && (
+        <Card title="Resultado">
+          <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 12 }}>
+            <StatCard label="Distância" value={`${rota.distanciaKm.toFixed(1)} km`} accent={GOLD} />
+            <StatCard label={rota.semTraçado ? "Tempo estimado" : "Tempo de percurso"} value={formatarDuracao(rota.duracaoMin)} accent={GREEN} />
+            {rota.semTraçado && <div style={{ fontSize: 11.5, color: MUTED, alignSelf: "center", maxWidth: 220 }}>Estimativa em linha reta, com velocidade média de 45 km/h — o cliente define o próprio trajeto até a granja.</div>}
+          </div>
+          <div ref={mapRef} style={{ width: "100%", height: isMobile ? 260 : 380, borderRadius: 10, overflow: "hidden", border: `1px solid ${BORDER}` }} />
+          {libStatus === "erro" && <div style={{ fontSize: 12, color: DANGER, marginTop: 8 }}>Não foi possível carregar o mapa (sem conexão com a internet). Distância e tempo continuam calculados acima.</div>}
+
+          {modo === "proprio" && (
+            <div style={{ marginTop: 16, borderTop: `1px solid ${BORDER}`, paddingTop: 14 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8, color: GREEN }}>Registrar esse trajeto como frete</div>
+              <div style={{ display: "grid", gridTemplateColumns: gridCols(isMobile, "1fr 1fr 1fr auto"), gap: 10, alignItems: "end" }}>
+                <Field label="Motorista"><Select options={motoristas.map((m) => ({ value: m.id, label: m.apelido || m.nomeCompleto }))} value={registro.motoristaId} onChange={(e) => setRegistro({ ...registro, motoristaId: e.target.value })} /></Field>
+                <Field label="Veículo"><Select options={veiculos.map((v) => ({ value: v.id, label: v.placa }))} value={registro.veiculoId} onChange={(e) => setRegistro({ ...registro, veiculoId: e.target.value })} /></Field>
+                <Field label="Valor (R$)"><TextInput type="number" step="0.01" value={registro.valorFrete} onChange={(e) => setRegistro({ ...registro, valorFrete: e.target.value })} /></Field>
+                <Button onClick={registrarComoFrete}>Registrar frete</Button>
+              </div>
+            </div>
+          )}
+        </Card>
+      )}
+    </div>
+  );
+}
+
 /* ---------------- Fiscal (NFe / SPED) — módulo ilustrativo ---------------- */
 
 function Fiscal({ db, update, filialId }) {
@@ -3776,14 +4022,17 @@ function RelatorioGerencial({ db, update, filialId }) {
   const funcionarios = db.funcionarios.filter((f) => f.filialId === filialId && f.ativo !== false && f.ativo !== "false");
   const vendedores = db.vendedores.filter((v) => v.filialId === filialId);
 
-  const configSalva = db.configsGerenciais.find((c) => c.filialId === filialId) || { investimentoTotal: 0, aliquotaImposto: 34, descontoValidadeAtivo: false, descontoValidadeDias: 7, descontoValidadePercentual: 10 };
+  const configSalva = db.configsGerenciais.find((c) => c.filialId === filialId) || { investimentoTotal: 0, aliquotaImposto: 34, descontoValidadeAtivo: false, descontoValidadeDias: 7, descontoValidadePercentual: 10, lalurAdicoes: 0, lalurExclusoes: 0 };
   const [config, setConfig] = useState({
     investimentoTotal: configSalva.investimentoTotal || "", aliquotaImposto: configSalva.aliquotaImposto ?? 34,
     descontoValidadeAtivo: configSalva.descontoValidadeAtivo ? "true" : "false",
     descontoValidadeDias: configSalva.descontoValidadeDias ?? 7,
     descontoValidadePercentual: configSalva.descontoValidadePercentual ?? 10,
+    lalurAdicoes: configSalva.lalurAdicoes || "", lalurExclusoes: configSalva.lalurExclusoes || "",
   });
-  const [periodo, setPeriodo] = useState({ de: primeiroDiaDoMes(), ate: todayISO() });
+  // Padrão: os últimos 12 meses fechados (setembro até 11 meses antes, por exemplo) — fatos contábeis já ocorridos.
+  // Pode ser ajustado livremente nos campos "De" / "Até" abaixo.
+  const [periodo, setPeriodo] = useState({ de: mesesAtras(11), ate: todayISO() });
 
   function salvarConfig() {
     update((prev) => ({
@@ -3793,6 +4042,7 @@ function RelatorioGerencial({ db, update, filialId }) {
         descontoValidadeAtivo: config.descontoValidadeAtivo === "true" || config.descontoValidadeAtivo === true,
         descontoValidadeDias: Number(config.descontoValidadeDias) || 0,
         descontoValidadePercentual: Number(config.descontoValidadePercentual) || 0,
+        lalurAdicoes: Number(config.lalurAdicoes) || 0, lalurExclusoes: Number(config.lalurExclusoes) || 0,
       }],
     }));
   }
@@ -3832,8 +4082,18 @@ function RelatorioGerencial({ db, update, filialId }) {
   const lucroMedioMensal = lucroLiquido / nMeses;
   const paybackMeses = investimento > 0 && lucroMedioMensal > 0 ? investimento / lucroMedioMensal : null;
 
-  // Fluxo de caixa projetado (por vencimento das parcelas, todo o histórico dentro do período de meses)
-  const meses = listaDeMeses(periodo.de, periodo.ate);
+  // Fluxo de caixa projetado (por vencimento das parcelas). Cobre o período selecionado (fatos já
+  // ocorridos) e, além dele, qualquer mês futuro que já tenha conta a pagar ou a receber lançada
+  // (ex.: um boleto de 30/60 dias vencendo depois do fim do período) — essas contas já existem no
+  // sistema, então entram no fluxo mesmo fora da janela padrão.
+  const mesesBase = listaDeMeses(periodo.de, periodo.ate);
+  const mesFinalBase = mesesBase[mesesBase.length - 1];
+  const mesesFuturosSet = new Set();
+  vendasAll.forEach((v) => (v.parcelas || []).forEach((p) => { if (p.vencimento && p.vencimento.slice(0, 7) > mesFinalBase) mesesFuturosSet.add(p.vencimento.slice(0, 7)); }));
+  comprasAll.forEach((c) => (c.parcelas || []).forEach((p) => { if (p.vencimento && p.vencimento.slice(0, 7) > mesFinalBase) mesesFuturosSet.add(p.vencimento.slice(0, 7)); }));
+  avulsasAll.forEach((a) => { if (a.vencimento && a.vencimento.slice(0, 7) > mesFinalBase) mesesFuturosSet.add(a.vencimento.slice(0, 7)); });
+  const meses = [...mesesBase, ...[...mesesFuturosSet].sort()];
+
   let acumulado = 0;
   const fluxo = meses.map((mes) => {
     const entradasVendas = vendasAll.flatMap((v) => v.parcelas || []).filter((p) => p.vencimento && p.vencimento.startsWith(mes)).reduce((s, p) => s + Number(p.valor || 0), 0);
@@ -3845,8 +4105,54 @@ function RelatorioGerencial({ db, update, filialId }) {
     const saidas = saidasCompras + saidasFretes + saidasAvulsas + folhaMensal;
     const saldo = entradas - saidas;
     acumulado += saldo;
-    return { mes, entradas, saidas, saldo, acumulado };
+    return { mes, entradas, saidas, saldo, acumulado, futuro: mes > mesFinalBase };
   });
+
+  // ---- Resumo de um período arbitrário (usado no comparativo semestral) ----
+  function resumoPeriodo(deISO, ateISO) {
+    const emPer = (d) => !!d && d >= deISO && d <= ateISO;
+    const nMesesP = mesesNoPeriodo(deISO, ateISO);
+    const vP = vendasAll.filter((v) => emPer(v.data));
+    const cP = comprasAll.filter((c) => emPer(c.data));
+    const fP = fretesAll.filter((f) => emPer(f.data));
+    const aP = avulsasAll.filter((a) => emPer(a.vencimento));
+    const receitaP = vP.reduce((s, v) => s + Number(v.total || 0), 0) + aP.filter((a) => a.tipo === "receber").reduce((s, a) => s + Number(a.valor || 0), 0);
+    const comissoesP = vP.reduce((s, v) => s + Number(v.comissaoValor || 0) + Number(v.comissaoGerenteValor || 0), 0);
+    const insumosP = cP.filter((c) => c.categoria === "insumo").reduce((s, c) => s + Number(c.valor || 0), 0);
+    const admP = cP.filter((c) => c.categoria === "administrativo").reduce((s, c) => s + Number(c.valor || 0), 0);
+    const manutP = cP.filter((c) => c.categoria === "manutencao").reduce((s, c) => s + Number(c.valor || 0), 0);
+    const outrasP = cP.filter((c) => !["insumo", "administrativo", "manutencao", "pintinhos"].includes(c.categoria)).reduce((s, c) => s + Number(c.valor || 0), 0);
+    const freteP = fP.reduce((s, f) => s + Number(f.valorFrete || 0), 0);
+    const avulsasPagarP = aP.filter((a) => a.tipo === "pagar").reduce((s, a) => s + Number(a.valor || 0), 0);
+    const folhaP = folhaMensal * nMesesP;
+    const custosP = insumosP + admP + manutP + outrasP + freteP + comissoesP + avulsasPagarP + folhaP;
+    const ebitdaP = receitaP - custosP;
+    const impostoP = ebitdaP > 0 ? ebitdaP * (Number(config.aliquotaImposto || 0) / 100) : 0;
+    return { receita: receitaP, custos: custosP, ebitda: ebitdaP, lucro: ebitdaP - impostoP, nMeses: nMesesP };
+  }
+
+  const semestreAtualDe = inicioSemestre(todayISO());
+  const semestreAtualAte = todayISO();
+  const semestreAnteriorDe = deslocarAno(semestreAtualDe, -1);
+  const semestreAnteriorAte = deslocarAno(semestreAtualAte, -1);
+  const resumoSemestreAtual = resumoPeriodo(semestreAtualDe, semestreAtualAte);
+  const resumoSemestreAnterior = resumoPeriodo(semestreAnteriorDe, semestreAnteriorAte);
+  const variacao = (atual, anterior) => (anterior !== 0 ? ((atual - anterior) / Math.abs(anterior)) * 100 : (atual !== 0 ? 100 : 0));
+
+  // ---- LALUR simplificado (Livro de Apuração do Lucro Real) ----
+  // Parte do EBITDA do período como proxy de "lucro líquido antes do IR/CSLL" (o sistema não
+  // modela depreciação/amortização) e aplica as regras de IRPJ (15% + adicional de 10% sobre o
+  // que exceder R$20.000/mês) e CSLL (9%) sobre a base ajustada por adições e exclusões.
+  const lalurAdicoes = Number(config.lalurAdicoes) || 0;
+  const lalurExclusoes = Number(config.lalurExclusoes) || 0;
+  const lalurLucroContabil = ebitda;
+  const lalurBaseCalculo = lalurLucroContabil + lalurAdicoes - lalurExclusoes;
+  const lalurLimiteAdicional = 20000 * nMeses;
+  const lalurIrpjBase = lalurBaseCalculo > 0 ? lalurBaseCalculo * 0.15 : 0;
+  const lalurIrpjAdicional = lalurBaseCalculo > lalurLimiteAdicional ? (lalurBaseCalculo - lalurLimiteAdicional) * 0.10 : 0;
+  const lalurCsll = lalurBaseCalculo > 0 ? lalurBaseCalculo * 0.09 : 0;
+  const lalurTotalTributos = lalurIrpjBase + lalurIrpjAdicional + lalurCsll;
+  const lalurLucroReal = lalurBaseCalculo - lalurTotalTributos;
 
   const comissoesPorVendedor = vendedores.filter((v) => v.ativo !== false && v.ativo !== "false").map((vend) => {
     const proprias = vendasAll.filter((v) => v.vendedorId === vend.id && dentroPeriodo(v.data));
@@ -3868,10 +4174,11 @@ function RelatorioGerencial({ db, update, filialId }) {
         Relatório calculado a partir dos lançamentos reais desta filial no período selecionado. Impostos, ROI e payback são estimativas gerenciais simplificadas (sem compensação de prejuízo fiscal, sem a trava legal de 30%, sem depreciação de ativos) — para uma apuração tributária real, consulte seu contador.
       </div>
 
-      <Card title="Período do relatório">
+      <Card title="Período do relatório" subtitle="Padrão: os últimos 12 meses fechados (mês corrente + 11 anteriores), com fatos contábeis já ocorridos. Contas a pagar/receber já lançadas para depois do fim do período aparecem à parte, no Fluxo de Caixa.">
         <div style={{ display: "flex", gap: 12, alignItems: "end", flexWrap: "wrap" }}>
           <Field label="De"><TextInput type="date" value={periodo.de} onChange={(e) => setPeriodo({ ...periodo, de: e.target.value })} /></Field>
           <Field label="Até"><TextInput type="date" value={periodo.ate} onChange={(e) => setPeriodo({ ...periodo, ate: e.target.value })} /></Field>
+          <Button variant="ghost" onClick={() => setPeriodo({ de: mesesAtras(11), ate: todayISO() })}>Últimos 12 meses</Button>
           <div style={{ fontSize: 12, color: MUTED, paddingBottom: 8 }}>{nMeses} mês(es) considerado(s) — a folha de pagamento é multiplicada por esse número de meses.</div>
         </div>
       </Card>
@@ -3880,6 +4187,14 @@ function RelatorioGerencial({ db, update, filialId }) {
         <div style={{ display: "flex", gap: 12, alignItems: "end", flexWrap: "wrap" }}>
           <Field label="Investimento total (R$)"><TextInput type="number" step="0.01" value={config.investimentoTotal} onChange={(e) => setConfig({ ...config, investimentoTotal: e.target.value })} /></Field>
           <Field label="Alíquota de imposto sobre o lucro (%)"><TextInput type="number" step="0.1" value={config.aliquotaImposto} onChange={(e) => setConfig({ ...config, aliquotaImposto: e.target.value })} /></Field>
+          <Button onClick={salvarConfig}>Salvar parâmetros</Button>
+        </div>
+      </Card>
+
+      <Card title="Parâmetros do LALUR" subtitle="Ajustes ao lucro contábil exigidos pela legislação — despesas não dedutíveis (adições) e receitas não tributáveis (exclusões), informados pelo contador.">
+        <div style={{ display: "flex", gap: 12, alignItems: "end", flexWrap: "wrap" }}>
+          <Field label="Adições (R$)"><TextInput type="number" step="0.01" value={config.lalurAdicoes} onChange={(e) => setConfig({ ...config, lalurAdicoes: e.target.value })} /></Field>
+          <Field label="Exclusões (R$)"><TextInput type="number" step="0.01" value={config.lalurExclusoes} onChange={(e) => setConfig({ ...config, lalurExclusoes: e.target.value })} /></Field>
           <Button onClick={salvarConfig}>Salvar parâmetros</Button>
         </div>
       </Card>
@@ -3922,16 +4237,44 @@ function RelatorioGerencial({ db, update, filialId }) {
         <div style={{ marginTop: 6 }}>{linha("Lucro líquido estimado", lucroLiquido, true)}</div>
       </Card>
 
-      <Card title="Fluxo de caixa projetado" subtitle="Entradas e saídas por mês de vencimento das parcelas — folha de pagamento tratada como custo fixo mensal.">
+      <Card title="Fluxo de caixa projetado" subtitle="Entradas e saídas por mês de vencimento das parcelas — folha de pagamento tratada como custo fixo mensal. Meses marcados como 'projetado' ficam além do período selecionado, mas já têm conta a pagar/receber lançada.">
         <Table
           columns={[
-            { key: "mes", label: "Mês", render: (r) => nomeMes(r.mes) },
+            { key: "mes", label: "Mês", render: (r) => <>{nomeMes(r.mes)}{r.futuro && <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, color: GOLD, background: "#FBF3DC", borderRadius: 6, padding: "1px 6px" }}>projetado</span>}</> },
             { key: "entradas", label: "Entradas", render: (r) => brl(r.entradas) },
             { key: "saidas", label: "Saídas", render: (r) => brl(r.saidas) },
             { key: "saldo", label: "Saldo do mês", render: (r) => brl(r.saldo) },
             { key: "acumulado", label: "Saldo acumulado", render: (r) => brl(r.acumulado) },
           ]}
           rows={fluxo}
+        />
+      </Card>
+
+      <Card title="LALUR — Livro de Apuração do Lucro Real (simplificado)" subtitle="Parte do EBITDA do período como lucro contábil (o sistema não modela depreciação/amortização). IRPJ: 15% + adicional de 10% sobre o que exceder R$20.000/mês; CSLL: 9%. Apuração gerencial simplificada — não substitui o LALUR fiscal formal preparado pelo contador.">
+        {linha("Lucro líquido contábil (EBITDA do período)", lalurLucroContabil)}
+        {linha("(+) Adições", lalurAdicoes, false, true)}
+        {linha("(-) Exclusões", -lalurExclusoes, false, true)}
+        <div style={{ marginTop: 6 }}>{linha("Base de cálculo (Lucro Real)", lalurBaseCalculo, true)}</div>
+        {linha("(-) IRPJ (15%)", -lalurIrpjBase, false, true)}
+        {linha(`(-) IRPJ adicional (10% acima de ${brl(lalurLimiteAdicional)})`, -lalurIrpjAdicional, false, true)}
+        {linha("(-) CSLL (9%)", -lalurCsll, false, true)}
+        <div style={{ marginTop: 6 }}>{linha("Lucro líquido após IRPJ/CSLL", lalurLucroReal, true)}</div>
+      </Card>
+
+      <Card title="Comparativo semestral" subtitle={`Semestre atual (${semestreAtualDe.split("-").reverse().join("/")} a ${semestreAtualAte.split("-").reverse().join("/")}) vs. mesmo intervalo do ano anterior.`}>
+        <Table
+          columns={[
+            { key: "indicador", label: "Indicador" },
+            { key: "atual", label: "Semestre atual", render: (r) => brl(r.atual) },
+            { key: "anterior", label: "Mesmo período ano anterior", render: (r) => brl(r.anterior) },
+            { key: "variacao", label: "Variação", render: (r) => <span style={{ color: r.variacao >= 0 ? SUCCESS : DANGER, fontWeight: 700 }}>{r.variacao >= 0 ? "▲" : "▼"} {Math.abs(r.variacao).toFixed(1)}%</span> },
+          ]}
+          rows={[
+            { indicador: "Receita", atual: resumoSemestreAtual.receita, anterior: resumoSemestreAnterior.receita, variacao: variacao(resumoSemestreAtual.receita, resumoSemestreAnterior.receita) },
+            { indicador: "Custos operacionais", atual: resumoSemestreAtual.custos, anterior: resumoSemestreAnterior.custos, variacao: variacao(resumoSemestreAtual.custos, resumoSemestreAnterior.custos) },
+            { indicador: "EBITDA", atual: resumoSemestreAtual.ebitda, anterior: resumoSemestreAnterior.ebitda, variacao: variacao(resumoSemestreAtual.ebitda, resumoSemestreAnterior.ebitda) },
+            { indicador: "Lucro líquido estimado", atual: resumoSemestreAtual.lucro, anterior: resumoSemestreAnterior.lucro, variacao: variacao(resumoSemestreAtual.lucro, resumoSemestreAnterior.lucro) },
+          ]}
         />
       </Card>
 
