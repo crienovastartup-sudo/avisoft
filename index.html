@@ -1,84 +1,4 @@
-<!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>AVISOFT — Gestão de Granja de Postura</title>
-<link rel="icon" href="data:,">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.24.7/babel.min.js"></script>
-<!-- URL e chave de conexão com o banco de dados ficam em arquivo separado — veja config.js -->
-<script src="config.js"></script>
-<style>
-  html, body, #root { height: 100%; margin: 0; }
-  body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; }
-  * { box-sizing: border-box; }
-  button { font-family: inherit; }
-</style>
-</head>
-<body>
-<div id="root"></div>
-
-<!--
-  Polyfill de "window.storage" usando localStorage do navegador.
-  Implementa a mesma assinatura assíncrona (get/set/delete/list) usada
-  pelo AVISOFT, para que o app funcione fora do ambiente de artifacts
-  da Claude sem precisar alterar a lógica do sistema.
-
-  Observação: os dados ficam salvos no localStorage DESTE navegador,
-  neste computador. Se você abrir em outro navegador/computador, ou
-  limpar os dados de navegação, o AVISOFT começa do zero.
--->
-<script>
-(function () {
-  const PREFIX = "avisoft::";
-  window.storage = {
-    async get(key) {
-      const raw = localStorage.getItem(PREFIX + key);
-      if (raw === null) throw new Error("Chave não encontrada: " + key);
-      return { key, value: raw, shared: false };
-    },
-    async set(key, value) {
-      localStorage.setItem(PREFIX + key, value);
-      return { key, value, shared: false };
-    },
-    async delete(key) {
-      const existed = localStorage.getItem(PREFIX + key) !== null;
-      localStorage.removeItem(PREFIX + key);
-      return { key, deleted: existed, shared: false };
-    },
-    async list(prefix) {
-      const keys = Object.keys(localStorage)
-        .filter((k) => k.startsWith(PREFIX + (prefix || "")))
-        .map((k) => k.slice(PREFIX.length));
-      return { keys, prefix: prefix || undefined, shared: false };
-    },
-  };
-})();
-</script>
-
-<!--
-  Bloqueia botão direito e os atalhos mais comuns de abrir o inspetor
-  (F12, Ctrl+Shift+I/J/C, Ctrl+U). Isto é apenas um desestímulo visual
-  para o usuário casual — NÃO impede alguém com conhecimento técnico:
-  o inspetor pode ser aberto pelo menu do navegador, por outros atalhos
-  que não dá pra bloquear, ou simplesmente abrindo a página em outro
-  navegador. Não trate isto como proteção de segurança de verdade.
--->
-<script>
-document.addEventListener("contextmenu", (e) => e.preventDefault());
-document.addEventListener("keydown", (e) => {
-  const bloquear =
-    e.key === "F12" ||
-    (e.ctrlKey && e.shiftKey && ["I", "J", "C"].includes(e.key.toUpperCase())) ||
-    (e.ctrlKey && e.key.toUpperCase() === "U");
-  if (bloquear) e.preventDefault();
-});
-</script>
-
-<script type="text/babel" data-presets="react" data-type="module">
-const { useState, useEffect, useRef, Component } = React;
+import React, { useState, useEffect, useRef, Component } from "react";
 
 /* ============================================================
    AVISOFT — ERP para granjas de postura comercial
@@ -686,6 +606,70 @@ function StatCard({ label, value, accent }) {
     <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderLeft: `4px solid ${accent || GOLD}`, borderRadius: 10, padding: "14px 16px", minWidth: isMobile ? 140 : 180, flex: 1 }}>
       <div style={{ fontSize: 11.5, color: MUTED, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.4 }}>{label}</div>
       <div style={{ fontSize: 22, fontWeight: 800, color: GREEN, marginTop: 4 }}>{value}</div>
+    </div>
+  );
+}
+
+/* Tabela com busca (por texto livre, nos campos indicados) + filtro de data (opcional)
+   + paginação com seletor de itens por página (10/50/100/200/Todos). Usada nas telas
+   com muito lançamento — vendas, compras, fretes, movimentações etc. — pra não depender
+   de rolar a página inteira pra achar um registro. searchFields aceita chave da linha
+   (string) ou função (row) => string, pra buscar em campos calculados (ex.: nome do
+   cliente a partir do clienteId). */
+function FilterableTable({ columns, rows, searchFields = [], searchPlaceholder, dateField, emptyText, onEdit, onDelete }) {
+  const [busca, setBusca] = useState("");
+  const [dataDe, setDataDe] = useState("");
+  const [dataAte, setDataAte] = useState("");
+  const [pagina, setPagina] = useState(1);
+  const [porPagina, setPorPagina] = useState("50");
+
+  const filtradas = rows.filter((r) => {
+    if (busca.trim()) {
+      const alvo = searchFields.map((f) => (typeof f === "function" ? f(r) : r[f]) ?? "").join(" | ").toLowerCase();
+      if (!alvo.includes(busca.trim().toLowerCase())) return false;
+    }
+    if (dateField && dataDe && (r[dateField] || "") < dataDe) return false;
+    if (dateField && dataAte && (r[dateField] || "") > dataAte) return false;
+    return true;
+  });
+
+  const tamanhoPagina = porPagina === "todos" ? filtradas.length || 1 : Number(porPagina);
+  const totalPaginas = Math.max(1, Math.ceil(filtradas.length / tamanhoPagina));
+  const paginaAtual = Math.min(pagina, totalPaginas);
+  const linhasPagina = porPagina === "todos" ? filtradas : filtradas.slice((paginaAtual - 1) * tamanhoPagina, paginaAtual * tamanhoPagina);
+
+  return (
+    <div>
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 10, alignItems: "end" }}>
+        {!!searchFields.length && (
+          <div style={{ flex: 1, minWidth: 220 }}>
+            <TextInput placeholder={searchPlaceholder || "Buscar…"} value={busca} onChange={(e) => { setBusca(e.target.value); setPagina(1); }} />
+          </div>
+        )}
+        {dateField && (
+          <>
+            <Field label="De"><TextInput type="date" value={dataDe} onChange={(e) => { setDataDe(e.target.value); setPagina(1); }} /></Field>
+            <Field label="Até"><TextInput type="date" value={dataAte} onChange={(e) => { setDataAte(e.target.value); setPagina(1); }} /></Field>
+          </>
+        )}
+        <Field label="Por página">
+          <Select
+            options={[{ value: "10", label: "10" }, { value: "50", label: "50" }, { value: "100", label: "100" }, { value: "200", label: "200" }, { value: "todos", label: "Todos" }]}
+            value={porPagina} onChange={(e) => { setPorPagina(e.target.value); setPagina(1); }}
+          />
+        </Field>
+      </div>
+      <div style={{ fontSize: 11.5, color: MUTED, marginBottom: 8 }}>
+        {filtradas.length} resultado(s){(busca.trim() || dataDe || dataAte) ? ` — de ${rows.length} no total` : ""}
+      </div>
+      <Table columns={columns} rows={linhasPagina} onEdit={onEdit} onDelete={onDelete} emptyText={emptyText} />
+      {totalPaginas > 1 && (
+        <div style={{ display: "flex", gap: 10, alignItems: "center", justifyContent: "center", marginTop: 14 }}>
+          <button onClick={() => setPagina(Math.max(1, paginaAtual - 1))} disabled={paginaAtual <= 1} style={{ border: `1px solid ${BORDER}`, background: CARD, borderRadius: 8, padding: "6px 12px", cursor: paginaAtual <= 1 ? "default" : "pointer", color: paginaAtual <= 1 ? MUTED : GREEN, fontWeight: 700, fontSize: 12.5 }}>‹ Anterior</button>
+          <span style={{ fontSize: 12.5, color: MUTED }}>Página {paginaAtual} de {totalPaginas}</span>
+          <button onClick={() => setPagina(Math.min(totalPaginas, paginaAtual + 1))} disabled={paginaAtual >= totalPaginas} style={{ border: `1px solid ${BORDER}`, background: CARD, borderRadius: 8, padding: "6px 12px", cursor: paginaAtual >= totalPaginas ? "default" : "pointer", color: paginaAtual >= totalPaginas ? MUTED : GREEN, fontWeight: 700, fontSize: 12.5 }}>Próxima ›</button>
+        </div>
+      )}
     </div>
   );
 }
@@ -1611,9 +1595,9 @@ function ModuleView({ activeModule, db, update, conn, filialId, empresaId, usuar
     case "estoque":
       return <Estoque db={db} filialId={filialId} />;
     case "almoxarifado":
-      return <AlmoxarifadoMovimentacoes db={db} update={update} filialId={filialId} />;
+      return <AlmoxarifadoMovimentacoes db={db} update={update} filialId={filialId} usuario={usuario} />;
     case "imobilizado":
-      return <ImobilizadoControle db={db} update={update} filialId={filialId} />;
+      return <ImobilizadoControle db={db} update={update} filialId={filialId} usuario={usuario} />;
     case "racao":
       return <FabricaRacao db={db} update={update} filialId={filialId} />;
     case "compras":
@@ -1838,7 +1822,7 @@ function Inicio({ db, update, filialId }) {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
-      {(!vendas.length || COLECOES_DEMO.some((chave) => (db[chave] || []).some((r) => r.filialId === filialId && r._demo))) && <CardDadosDemonstracao db={db} update={update} filialId={filialId} />}
+      {/* Dados de demonstração: agora fica em Empresa & Filiais (coluna "Dados" de cada filial), não mais aqui. */}
       <div>
         <div style={{ fontSize: 20, fontWeight: 800, color: GREEN }}>Visão geral</div>
         <div style={{ fontSize: 13, color: MUTED }}>Resumo da filial selecionada, atualizado a cada lançamento.</div>
@@ -2364,7 +2348,15 @@ function Vendas({ db, update, filialId }) {
       </Card>
 
       <Card title={`Vendas lançadas (${vendas.length})`}>
-        <Table
+        <FilterableTable
+          searchPlaceholder="Buscar por cliente, CNPJ/CPF, nº do pedido ou chave da NF-e…"
+          searchFields={[
+            (r) => nomeCliente(r.clienteId),
+            (r) => clientes.find((c) => c.id === r.clienteId)?.cpfCnpj,
+            (r) => r.id,
+            (r) => r.nfe?.chave,
+          ]}
+          dateField="data"
           columns={[
             { key: "data", label: "Data" },
             { key: "clienteId", label: "Cliente", render: (r) => nomeCliente(r.clienteId) },
@@ -2444,18 +2436,90 @@ function lotesFEFO(db, filialId, produtoId) {
     });
 }
 
+/* Uploader de anexos (foto ou PDF) reutilizado em Almoxarifado e Imobilizado —
+   mesmo padrão de compressão usado no resto do sistema (cabe numa célula do Sheets). */
+function UploadAnexos({ anexos, onChange, label }) {
+  function anexar(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    e.target.value = "";
+    comprimirImagem(file)
+      .then((resultado) => onChange([...(anexos || []), { id: uid(), ...resultado }]))
+      .catch((err) => alert(err.message));
+  }
+  function remover(anexoId) { onChange((anexos || []).filter((a) => a.id !== anexoId)); }
+  return (
+    <div>
+      <div style={{ fontSize: 12.5, fontWeight: 700, color: MUTED, marginBottom: 6 }}>{label || "Anexar foto/PDF"}</div>
+      <input type="file" accept="image/*,.pdf" onChange={anexar} style={{ fontSize: 12.5 }} />
+      {!!(anexos || []).length && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 8 }}>
+          {anexos.map((a) => (
+            <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 6, background: BG, border: `1px solid ${BORDER}`, borderRadius: 999, padding: "4px 10px", fontSize: 11.5 }}>
+              <a href={a.dataUrl} target="_blank" rel="noreferrer" style={{ color: GREEN, textDecoration: "none", fontWeight: 700 }}>{a.nome}</a>
+              <button type="button" onClick={() => remover(a.id)} style={{ border: "none", background: "none", color: DANGER, cursor: "pointer", fontWeight: 700 }}>×</button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* Coluna de anexos numa tabela de movimentações — link "ver anexo" por arquivo, abre em nova aba. */
+function ColunaAnexos({ anexos }) {
+  if (!anexos || !anexos.length) return <span style={{ fontSize: 11, color: MUTED }}>—</span>;
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+      {anexos.map((a) => (
+        <a key={a.id} href={a.dataUrl} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: GOLD, fontWeight: 700, textDecoration: "none" }}>📎 ver anexo</a>
+      ))}
+    </div>
+  );
+}
+
+/* Seletor de fornecedor com opção de cadastrar um novo na hora, sem sair da tela
+   (usado nas entradas de Almoxarifado e Imobilizado). */
+function SeletorFornecedorRapido({ fornecedores, fornecedorId, onEscolher, novoFornecedor, onNovoFornecedorChange, criandoNovo, onCriandoNovoChange }) {
+  return (
+    <div>
+      <Field label="Fornecedor">
+        <Select
+          options={[...fornecedores.map((f) => ({ value: f.id, label: f.razaoSocial })), { value: "__novo__", label: "+ Cadastrar novo fornecedor" }]}
+          value={criandoNovo ? "__novo__" : fornecedorId}
+          onChange={(e) => { if (e.target.value === "__novo__") onCriandoNovoChange(true); else { onCriandoNovoChange(false); onEscolher(e.target.value); } }}
+        />
+      </Field>
+      {criandoNovo && (
+        <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: 8, marginTop: 8, background: BG, borderRadius: 8, padding: 10 }}>
+          <Field label="Razão social / Nome"><TextInput value={novoFornecedor.razaoSocial} onChange={(e) => onNovoFornecedorChange({ ...novoFornecedor, razaoSocial: e.target.value })} /></Field>
+          <Field label="CNPJ/CPF"><TextInput value={novoFornecedor.cpfCnpj} onChange={(e) => onNovoFornecedorChange({ ...novoFornecedor, cpfCnpj: e.target.value })} /></Field>
+          <Field label="Telefone"><TextInput value={novoFornecedor.telefone1} onChange={(e) => onNovoFornecedorChange({ ...novoFornecedor, telefone1: e.target.value })} /></Field>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* Cadastro de lotes de produção — cada lote é um registro separado, com sua
    própria validade, permitindo vários lotes em aberto para um mesmo produto. */
 /* Controle de entrada/saída dos itens marcados como "Almoxarifado" (uso
    interno — limpeza, peças, ferramentas, material de escritório etc.).
    Fica separado do estoque de produtos para venda: aqui não é venda,
-   é consumo — a saída pode virar despesa administrativa se você marcar. */
-function AlmoxarifadoMovimentacoes({ db, update, filialId }) {
+   é consumo — a saída pode virar despesa administrativa se você marcar.
+   Cada lançamento registra quem lançou (usuário logado); entradas pedem nota
+   fiscal + fornecedor; saídas pedem solicitante, departamento e quem autorizou;
+   os dois aceitam anexar foto/PDF do comprovante. */
+function AlmoxarifadoMovimentacoes({ db, update, filialId, usuario }) {
   const itensAlmoxarifado = db.produtos.filter((p) => p.filialId === filialId && p.controleTipo === "almoxarifado");
   const movimentacoes = db.movimentacoesEstoque.filter((m) => m.filialId === filialId && itensAlmoxarifado.some((p) => p.id === m.produtoId));
   const centrosCusto = db.centrosCusto.filter((c) => c.filialId === filialId);
+  const fornecedores = db.fornecedores.filter((f) => f.filialId === filialId);
 
-  const [form, setForm] = useState({ produtoId: "", tipo: "saida", quantidade: "", motivo: "", centroCustoId: "", gerarDespesa: "false", valorDespesa: "" });
+  const blank = { produtoId: "", tipo: "saida", quantidade: "", motivo: "", centroCustoId: "", gerarDespesa: "false", valorDespesa: "", numeroNota: "", fornecedorId: "", solicitante: "", departamento: "", autorizadoPor: "", anexos: [] };
+  const [form, setForm] = useState(blank);
+  const [criandoFornecedor, setCriandoFornecedor] = useState(false);
+  const [novoFornecedor, setNovoFornecedor] = useState({ razaoSocial: "", cpfCnpj: "", telefone1: "" });
 
   const saldoPorItem = {};
   movimentacoes.forEach((m) => {
@@ -2468,7 +2532,24 @@ function AlmoxarifadoMovimentacoes({ db, update, filialId }) {
     if (!form.produtoId || !Number(form.quantidade)) return;
     const movId = uid();
     update((prev) => {
-      const novaMov = { id: movId, filialId, data: todayISO(), produtoId: form.produtoId, tipo: form.tipo, qtd: Number(form.quantidade), motivo: form.motivo || (form.tipo === "saida" ? "Consumo interno" : "Reposição de almoxarifado") };
+      let fornecedoresNext = prev.fornecedores;
+      let fornecedorId = form.fornecedorId;
+      if (form.tipo === "entrada" && criandoFornecedor && novoFornecedor.razaoSocial) {
+        const novo = { id: uid(), filialId, razaoSocial: novoFornecedor.razaoSocial, cpfCnpj: novoFornecedor.cpfCnpj, inscricaoEstadual: "", endereco: "", numero: "", bairro: "", cidade: "", uf: "", telefone1: novoFornecedor.telefone1, telefone2: "", email1: "", email2: "", responsavel: "", anexos: [] };
+        fornecedoresNext = [...fornecedoresNext, novo];
+        fornecedorId = novo.id;
+      }
+      const novaMov = {
+        id: movId, filialId, data: todayISO(), produtoId: form.produtoId, tipo: form.tipo, qtd: Number(form.quantidade),
+        motivo: form.motivo || (form.tipo === "saida" ? "Consumo interno" : "Reposição de almoxarifado"),
+        usuarioId: usuario?.id || "", usuarioNome: usuario?.nome || "",
+        numeroNota: form.tipo === "entrada" ? form.numeroNota : "",
+        fornecedorId: form.tipo === "entrada" ? fornecedorId : "",
+        solicitante: form.tipo === "saida" ? form.solicitante : "",
+        departamento: form.tipo === "saida" ? form.departamento : "",
+        autorizadoPor: form.tipo === "saida" ? form.autorizadoPor : "",
+        anexos: form.anexos,
+      };
       const gerarDespesa = form.gerarDespesa === "true" && form.tipo === "saida" && Number(form.valorDespesa) > 0;
       const contaNova = gerarDespesa ? [{
         id: uid(), filialId, tipo: "pagar",
@@ -2477,11 +2558,14 @@ function AlmoxarifadoMovimentacoes({ db, update, filialId }) {
       }] : [];
       return {
         ...prev,
+        fornecedores: fornecedoresNext,
         movimentacoesEstoque: [...prev.movimentacoesEstoque, novaMov],
         contasAvulsas: [...prev.contasAvulsas, ...contaNova],
       };
     });
-    setForm({ produtoId: "", tipo: "saida", quantidade: "", motivo: "", centroCustoId: "", gerarDespesa: "false", valorDespesa: "" });
+    setForm(blank);
+    setCriandoFornecedor(false);
+    setNovoFornecedor({ razaoSocial: "", cpfCnpj: "", telefone1: "" });
   }
 
   if (!itensAlmoxarifado.length) {
@@ -2493,20 +2577,43 @@ function AlmoxarifadoMovimentacoes({ db, update, filialId }) {
   }
 
   return (
-    <Card title="Almoxarifado — entrada e saída (uso interno)" subtitle="Separado do estoque de produtos para venda — aqui é consumo, não venda.">
-      <form onSubmit={registrar} style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, alignItems: "end", marginBottom: 16 }}>
-        <Field label="Item"><Select options={itensAlmoxarifado.map((p) => ({ value: p.id, label: p.nome }))} value={form.produtoId} onChange={(e) => setForm({ ...form, produtoId: e.target.value })} /></Field>
-        <Field label="Movimento"><Select options={[{ value: "saida", label: "Saída (consumo)" }, { value: "entrada", label: "Entrada (reposição/compra)" }]} value={form.tipo} onChange={(e) => setForm({ ...form, tipo: e.target.value })} /></Field>
-        <Field label="Quantidade"><TextInput type="number" value={form.quantidade} onChange={(e) => setForm({ ...form, quantidade: e.target.value })} /></Field>
-        <Field label="Motivo"><TextInput placeholder="ex.: limpeza do galpão 3" value={form.motivo} onChange={(e) => setForm({ ...form, motivo: e.target.value })} /></Field>
-        <Field label="Centro de custo"><Select options={centrosCusto.map((c) => ({ value: c.id, label: c.nome }))} value={form.centroCustoId} onChange={(e) => setForm({ ...form, centroCustoId: e.target.value })} /></Field>
+    <Card title="Almoxarifado — entrada e saída (uso interno)" subtitle="Separado do estoque de produtos para venda — aqui é consumo, não venda. Todo lançamento registra automaticamente quem está logado.">
+      <form onSubmit={registrar} style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 16 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, alignItems: "end" }}>
+          <Field label="Item"><Select options={itensAlmoxarifado.map((p) => ({ value: p.id, label: p.nome }))} value={form.produtoId} onChange={(e) => setForm({ ...form, produtoId: e.target.value })} /></Field>
+          <Field label="Movimento"><Select options={[{ value: "saida", label: "Saída (consumo)" }, { value: "entrada", label: "Entrada (reposição/compra)" }]} value={form.tipo} onChange={(e) => setForm({ ...form, tipo: e.target.value })} /></Field>
+          <Field label="Quantidade"><TextInput type="number" value={form.quantidade} onChange={(e) => setForm({ ...form, quantidade: e.target.value })} /></Field>
+          <Field label="Motivo"><TextInput placeholder="ex.: limpeza do galpão 3" value={form.motivo} onChange={(e) => setForm({ ...form, motivo: e.target.value })} /></Field>
+          <Field label="Centro de custo"><Select options={centrosCusto.map((c) => ({ value: c.id, label: c.nome }))} value={form.centroCustoId} onChange={(e) => setForm({ ...form, centroCustoId: e.target.value })} /></Field>
+          {form.tipo === "saida" && (
+            <Field label="Gerar despesa?"><Select options={[{ value: "false", label: "Não" }, { value: "true", label: "Sim" }]} value={form.gerarDespesa} onChange={(e) => setForm({ ...form, gerarDespesa: e.target.value })} /></Field>
+          )}
+          {form.tipo === "saida" && form.gerarDespesa === "true" && (
+            <Field label="Valor da despesa (R$)"><TextInput type="number" step="0.01" value={form.valorDespesa} onChange={(e) => setForm({ ...form, valorDespesa: e.target.value })} /></Field>
+          )}
+        </div>
+
+        {form.tipo === "entrada" && (
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 10, alignItems: "start", background: "#FBF3DC", borderRadius: 10, padding: 12 }}>
+            <Field label="Número da nota fiscal"><TextInput value={form.numeroNota} onChange={(e) => setForm({ ...form, numeroNota: e.target.value })} /></Field>
+            <SeletorFornecedorRapido
+              fornecedores={fornecedores} fornecedorId={form.fornecedorId} onEscolher={(id) => setForm({ ...form, fornecedorId: id })}
+              novoFornecedor={novoFornecedor} onNovoFornecedorChange={setNovoFornecedor}
+              criandoNovo={criandoFornecedor} onCriandoNovoChange={setCriandoFornecedor}
+            />
+          </div>
+        )}
         {form.tipo === "saida" && (
-          <Field label="Gerar despesa?"><Select options={[{ value: "false", label: "Não" }, { value: "true", label: "Sim" }]} value={form.gerarDespesa} onChange={(e) => setForm({ ...form, gerarDespesa: e.target.value })} /></Field>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, background: "#EAF3EC", borderRadius: 10, padding: 12 }}>
+            <Field label="Quem está pedindo"><TextInput value={form.solicitante} onChange={(e) => setForm({ ...form, solicitante: e.target.value })} /></Field>
+            <Field label="Departamento"><TextInput placeholder="ex.: Produção, Fábrica de Ração" value={form.departamento} onChange={(e) => setForm({ ...form, departamento: e.target.value })} /></Field>
+            <Field label="Autorizado por"><TextInput value={form.autorizadoPor} onChange={(e) => setForm({ ...form, autorizadoPor: e.target.value })} /></Field>
+          </div>
         )}
-        {form.tipo === "saida" && form.gerarDespesa === "true" && (
-          <Field label="Valor da despesa (R$)"><TextInput type="number" step="0.01" value={form.valorDespesa} onChange={(e) => setForm({ ...form, valorDespesa: e.target.value })} /></Field>
-        )}
-        <div style={{ gridColumn: "1 / -1" }}><Button type="submit">Registrar</Button></div>
+
+        <UploadAnexos anexos={form.anexos} onChange={(anexos) => setForm({ ...form, anexos })} label={form.tipo === "entrada" ? "Anexar foto/PDF da nota fiscal" : "Anexar foto/PDF da autorização de saída"} />
+
+        <div><Button type="submit">Registrar</Button></div>
       </form>
       <Table
         columns={[
@@ -2516,16 +2623,24 @@ function AlmoxarifadoMovimentacoes({ db, update, filialId }) {
         rows={itensAlmoxarifado}
       />
       <div style={{ height: 1, background: BORDER, margin: "14px 0" }} />
-      <Table
+      <FilterableTable
+        searchPlaceholder="Buscar por item, motivo, solicitante ou usuário…"
+        searchFields={["motivo", "solicitante", "departamento", "usuarioNome", (r) => itensAlmoxarifado.find((p) => p.id === r.produtoId)?.nome]}
+        dateField="data"
+        emptyText="Nenhuma movimentação de almoxarifado registrada ainda."
         columns={[
           { key: "data", label: "Data" },
           { key: "produtoId", label: "Item", render: (r) => itensAlmoxarifado.find((p) => p.id === r.produtoId)?.nome || "—" },
           { key: "tipo", label: "Tipo", render: (r) => (r.tipo === "entrada" ? "Entrada" : "Saída") },
           { key: "qtd", label: "Qtd.", render: (r) => Number(r.qtd || 0).toLocaleString("pt-BR") },
           { key: "motivo", label: "Motivo" },
+          { key: "detalhes", label: "Detalhes", render: (r) => r.tipo === "entrada"
+            ? <span style={{ fontSize: 11 }}>{r.numeroNota ? `NF ${r.numeroNota}` : "—"}{r.fornecedorId && <><br />{fornecedores.find((f) => f.id === r.fornecedorId)?.razaoSocial}</>}</span>
+            : <span style={{ fontSize: 11 }}>{r.solicitante && <>Solicitante: {r.solicitante}<br /></>}{r.departamento && <>Depto: {r.departamento}<br /></>}{r.autorizadoPor && <>Autorizado por: {r.autorizadoPor}</>}</span> },
+          { key: "usuarioNome", label: "Lançado por", render: (r) => r.usuarioNome || "—" },
+          { key: "anexos", label: "Anexo", render: (r) => <ColunaAnexos anexos={r.anexos} /> },
         ]}
-        rows={[...movimentacoes].sort((a, b) => (a.data < b.data ? 1 : -1)).slice(0, 30)}
-        emptyText="Nenhuma movimentação de almoxarifado registrada ainda."
+        rows={[...movimentacoes].sort((a, b) => (a.data < b.data ? 1 : -1))}
       />
     </Card>
   );
@@ -2534,12 +2649,15 @@ function AlmoxarifadoMovimentacoes({ db, update, filialId }) {
 /* Controle de bens do Imobilizado (veículos, câmeras, ferramentas de maior valor...).
    Entrada pode ser avulsa (sem nota) ou vinculada a uma nota fiscal de compra —
    o valor de aquisição alimenta o Ativo Não Circulante no Balanço Patrimonial. */
-function ImobilizadoControle({ db, update, filialId }) {
+function ImobilizadoControle({ db, update, filialId, usuario }) {
   const itensImobilizado = db.produtos.filter((p) => p.filialId === filialId && p.controleTipo === "imobilizado");
   const fornecedores = db.fornecedores.filter((f) => f.filialId === filialId);
   const movimentacoes = db.movimentacoesEstoque.filter((m) => m.filialId === filialId && itensImobilizado.some((p) => p.id === m.produtoId));
 
-  const [form, setForm] = useState({ produtoId: "", tipo: "entrada", quantidade: "1", valorAquisicao: "", origemLancamento: "avulso", numeroNota: "", fornecedorId: "", motivo: "" });
+  const blank = { produtoId: "", tipo: "entrada", quantidade: "1", valorAquisicao: "", origemLancamento: "avulso", numeroNota: "", fornecedorId: "", motivo: "", solicitante: "", departamento: "", autorizadoPor: "", anexos: [] };
+  const [form, setForm] = useState(blank);
+  const [criandoFornecedor, setCriandoFornecedor] = useState(false);
+  const [novoFornecedor, setNovoFornecedor] = useState({ razaoSocial: "", cpfCnpj: "", telefone1: "" });
 
   const saldoPorItem = {};
   const valorPorItem = {};
@@ -2554,16 +2672,32 @@ function ImobilizadoControle({ db, update, filialId }) {
   function registrar(e) {
     e.preventDefault();
     if (!form.produtoId || !Number(form.quantidade)) return;
-    const novaMov = {
-      id: uid(), filialId, data: todayISO(), produtoId: form.produtoId, tipo: form.tipo, qtd: Number(form.quantidade),
-      motivo: form.motivo || (form.tipo === "entrada" ? "Aquisição de bem do imobilizado" : "Baixa de bem do imobilizado"),
-      valorAquisicao: Number(form.valorAquisicao) || 0,
-      origemLancamento: form.origemLancamento,
-      numeroNota: form.origemLancamento === "nota_fiscal" ? form.numeroNota : "",
-      fornecedorId: form.fornecedorId || "",
-    };
-    update((prev) => ({ ...prev, movimentacoesEstoque: [...prev.movimentacoesEstoque, novaMov] }));
-    setForm({ produtoId: "", tipo: "entrada", quantidade: "1", valorAquisicao: "", origemLancamento: "avulso", numeroNota: "", fornecedorId: "", motivo: "" });
+    update((prev) => {
+      let fornecedoresNext = prev.fornecedores;
+      let fornecedorId = form.fornecedorId;
+      if (form.tipo === "entrada" && form.origemLancamento === "nota_fiscal" && criandoFornecedor && novoFornecedor.razaoSocial) {
+        const novo = { id: uid(), filialId, razaoSocial: novoFornecedor.razaoSocial, cpfCnpj: novoFornecedor.cpfCnpj, inscricaoEstadual: "", endereco: "", numero: "", bairro: "", cidade: "", uf: "", telefone1: novoFornecedor.telefone1, telefone2: "", email1: "", email2: "", responsavel: "", anexos: [] };
+        fornecedoresNext = [...fornecedoresNext, novo];
+        fornecedorId = novo.id;
+      }
+      const novaMov = {
+        id: uid(), filialId, data: todayISO(), produtoId: form.produtoId, tipo: form.tipo, qtd: Number(form.quantidade),
+        motivo: form.motivo || (form.tipo === "entrada" ? "Aquisição de bem do imobilizado" : "Baixa de bem do imobilizado"),
+        valorAquisicao: Number(form.valorAquisicao) || 0,
+        origemLancamento: form.origemLancamento,
+        numeroNota: form.origemLancamento === "nota_fiscal" ? form.numeroNota : "",
+        fornecedorId: form.tipo === "entrada" ? fornecedorId || "" : "",
+        usuarioId: usuario?.id || "", usuarioNome: usuario?.nome || "",
+        solicitante: form.tipo === "saida" ? form.solicitante : "",
+        departamento: form.tipo === "saida" ? form.departamento : "",
+        autorizadoPor: form.tipo === "saida" ? form.autorizadoPor : "",
+        anexos: form.anexos,
+      };
+      return { ...prev, fornecedores: fornecedoresNext, movimentacoesEstoque: [...prev.movimentacoesEstoque, novaMov] };
+    });
+    setForm(blank);
+    setCriandoFornecedor(false);
+    setNovoFornecedor({ razaoSocial: "", cpfCnpj: "", telefone1: "" });
   }
 
   if (!itensImobilizado.length) {
@@ -2577,23 +2711,42 @@ function ImobilizadoControle({ db, update, filialId }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <StatCard label="Valor total em Imobilizado (Ativo Não Circulante)" value={brl(valorTotalImobilizado)} accent={GREEN} />
-      <Card title="Imobilizado — entrada e baixa de bens" subtitle="Separado do estoque de produtos e do almoxarifado. O valor de aquisição das entradas alimenta o Balanço Patrimonial.">
-        <form onSubmit={registrar} style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, alignItems: "end", marginBottom: 16 }}>
-          <Field label="Bem"><Select options={itensImobilizado.map((p) => ({ value: p.id, label: p.nome }))} value={form.produtoId} onChange={(e) => setForm({ ...form, produtoId: e.target.value })} /></Field>
-          <Field label="Movimento"><Select options={[{ value: "entrada", label: "Entrada (aquisição)" }, { value: "saida", label: "Baixa (perda/descarte, não venda)" }]} value={form.tipo} onChange={(e) => setForm({ ...form, tipo: e.target.value })} /></Field>
-          <Field label="Quantidade"><TextInput type="number" value={form.quantidade} onChange={(e) => setForm({ ...form, quantidade: e.target.value })} /></Field>
-          <Field label="Valor de aquisição (R$)"><TextInput type="number" step="0.01" value={form.valorAquisicao} onChange={(e) => setForm({ ...form, valorAquisicao: e.target.value })} /></Field>
-          <Field label="Tipo de lançamento">
-            <Select options={[{ value: "avulso", label: "Avulso (sem nota)" }, { value: "nota_fiscal", label: "Com nota fiscal" }]} value={form.origemLancamento} onChange={(e) => setForm({ ...form, origemLancamento: e.target.value })} />
-          </Field>
-          {form.origemLancamento === "nota_fiscal" && (
-            <>
+      <Card title="Imobilizado — entrada e baixa de bens" subtitle="Separado do estoque de produtos e do almoxarifado. O valor de aquisição das entradas alimenta o Balanço Patrimonial. Todo lançamento registra automaticamente quem está logado.">
+        <form onSubmit={registrar} style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 16 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, alignItems: "end" }}>
+            <Field label="Bem"><Select options={itensImobilizado.map((p) => ({ value: p.id, label: p.nome }))} value={form.produtoId} onChange={(e) => setForm({ ...form, produtoId: e.target.value })} /></Field>
+            <Field label="Movimento"><Select options={[{ value: "entrada", label: "Entrada (aquisição)" }, { value: "saida", label: "Baixa (perda/descarte/venda)" }]} value={form.tipo} onChange={(e) => setForm({ ...form, tipo: e.target.value })} /></Field>
+            <Field label="Quantidade"><TextInput type="number" value={form.quantidade} onChange={(e) => setForm({ ...form, quantidade: e.target.value })} /></Field>
+            <Field label="Valor de aquisição (R$)"><TextInput type="number" step="0.01" value={form.valorAquisicao} onChange={(e) => setForm({ ...form, valorAquisicao: e.target.value })} /></Field>
+            <Field label="Motivo/observação"><TextInput placeholder="ex.: compra de caminhão 3/4" value={form.motivo} onChange={(e) => setForm({ ...form, motivo: e.target.value })} /></Field>
+            {form.tipo === "entrada" && (
+              <Field label="Tipo de lançamento">
+                <Select options={[{ value: "avulso", label: "Avulso (sem nota)" }, { value: "nota_fiscal", label: "Com nota fiscal" }]} value={form.origemLancamento} onChange={(e) => setForm({ ...form, origemLancamento: e.target.value })} />
+              </Field>
+            )}
+          </div>
+
+          {form.tipo === "entrada" && form.origemLancamento === "nota_fiscal" && (
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 10, alignItems: "start", background: "#FBF3DC", borderRadius: 10, padding: 12 }}>
               <Field label="Número da nota"><TextInput value={form.numeroNota} onChange={(e) => setForm({ ...form, numeroNota: e.target.value })} /></Field>
-              <Field label="Fornecedor"><Select options={fornecedores.map((f) => ({ value: f.id, label: f.razaoSocial }))} value={form.fornecedorId} onChange={(e) => setForm({ ...form, fornecedorId: e.target.value })} /></Field>
-            </>
+              <SeletorFornecedorRapido
+                fornecedores={fornecedores} fornecedorId={form.fornecedorId} onEscolher={(id) => setForm({ ...form, fornecedorId: id })}
+                novoFornecedor={novoFornecedor} onNovoFornecedorChange={setNovoFornecedor}
+                criandoNovo={criandoFornecedor} onCriandoNovoChange={setCriandoFornecedor}
+              />
+            </div>
           )}
-          <Field label="Motivo/observação"><TextInput placeholder="ex.: compra de caminhão 3/4" value={form.motivo} onChange={(e) => setForm({ ...form, motivo: e.target.value })} /></Field>
-          <div style={{ gridColumn: "1 / -1" }}><Button type="submit">Registrar</Button></div>
+          {form.tipo === "saida" && (
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, background: "#EAF3EC", borderRadius: 10, padding: 12 }}>
+              <Field label="Quem está pedindo a baixa/venda"><TextInput value={form.solicitante} onChange={(e) => setForm({ ...form, solicitante: e.target.value })} /></Field>
+              <Field label="Departamento"><TextInput value={form.departamento} onChange={(e) => setForm({ ...form, departamento: e.target.value })} /></Field>
+              <Field label="Autorizado por"><TextInput value={form.autorizadoPor} onChange={(e) => setForm({ ...form, autorizadoPor: e.target.value })} /></Field>
+            </div>
+          )}
+
+          <UploadAnexos anexos={form.anexos} onChange={(anexos) => setForm({ ...form, anexos })} label={form.tipo === "entrada" ? "Anexar foto/PDF da nota fiscal" : "Anexar foto/PDF da autorização de baixa/venda"} />
+
+          <div><Button type="submit">Registrar</Button></div>
         </form>
         <Table
           columns={[
@@ -2604,17 +2757,24 @@ function ImobilizadoControle({ db, update, filialId }) {
           rows={itensImobilizado}
         />
         <div style={{ height: 1, background: BORDER, margin: "14px 0" }} />
-        <Table
+        <FilterableTable
+          searchPlaceholder="Buscar por bem, motivo, solicitante ou usuário…"
+          searchFields={["motivo", "solicitante", "departamento", "usuarioNome", (r) => itensImobilizado.find((p) => p.id === r.produtoId)?.nome]}
+          dateField="data"
+          emptyText="Nenhuma movimentação de imobilizado registrada ainda."
           columns={[
             { key: "data", label: "Data" },
             { key: "produtoId", label: "Bem", render: (r) => itensImobilizado.find((p) => p.id === r.produtoId)?.nome || "—" },
             { key: "tipo", label: "Tipo", render: (r) => (r.tipo === "entrada" ? "Entrada" : "Baixa") },
             { key: "qtd", label: "Qtd.", render: (r) => Number(r.qtd || 0).toLocaleString("pt-BR") },
             { key: "valorAquisicao", label: "Valor", render: (r) => brl(r.valorAquisicao) },
-            { key: "origemLancamento", label: "Origem", render: (r) => (r.origemLancamento === "nota_fiscal" ? `NF ${r.numeroNota || "—"}` : "Avulso") },
+            { key: "detalhes", label: "Detalhes", render: (r) => r.tipo === "entrada"
+              ? <span style={{ fontSize: 11 }}>{r.origemLancamento === "nota_fiscal" ? `NF ${r.numeroNota || "—"}` : "Avulso"}{r.fornecedorId && <><br />{fornecedores.find((f) => f.id === r.fornecedorId)?.razaoSocial}</>}</span>
+              : <span style={{ fontSize: 11 }}>{r.solicitante && <>Solicitante: {r.solicitante}<br /></>}{r.departamento && <>Depto: {r.departamento}<br /></>}{r.autorizadoPor && <>Autorizado por: {r.autorizadoPor}</>}</span> },
+            { key: "usuarioNome", label: "Lançado por", render: (r) => r.usuarioNome || "—" },
+            { key: "anexos", label: "Anexo", render: (r) => <ColunaAnexos anexos={r.anexos} /> },
           ]}
-          rows={[...movimentacoes].sort((a, b) => (a.data < b.data ? 1 : -1)).slice(0, 30)}
-          emptyText="Nenhuma movimentação de imobilizado registrada ainda."
+          rows={[...movimentacoes].sort((a, b) => (a.data < b.data ? 1 : -1))}
         />
       </Card>
     </div>
@@ -3076,7 +3236,10 @@ function Compras({ db, update, filialId }) {
         </form>
       </Card>
       <Card title={`Compras lançadas (${compras.length})`}>
-        <Table
+        <FilterableTable
+          searchPlaceholder="Buscar por fornecedor, descrição ou categoria…"
+          searchFields={[(r) => nomeFornecedor(r.fornecedorId), "descricao", "categoria"]}
+          dateField="data"
           columns={[
             { key: "data", label: "Data" },
             { key: "fornecedorId", label: "Fornecedor", render: (r) => nomeFornecedor(r.fornecedorId) },
@@ -3568,7 +3731,10 @@ function Logistica({ db, update, filialId }) {
         </form>
       </Card>
       <Card title={`Fretes lançados (${fretes.length})`}>
-        <Table
+        <FilterableTable
+          searchPlaceholder="Buscar por motorista, veículo ou destino…"
+          searchFields={[(r) => nomeMotorista(r.motoristaId), (r) => nomeVeiculo(r.veiculoId), "destino"]}
+          dateField="data"
           columns={[
             { key: "data", label: "Data" },
             { key: "motoristaId", label: "Motorista", render: (r) => nomeMotorista(r.motoristaId) },
@@ -5821,9 +5987,3 @@ function LogAuditoria({ db, filialId }) {
     </div>
   );
 }
-
-
-ReactDOM.createRoot(document.getElementById("root")).render(<AvisoftRoot />);
-</script>
-</body>
-</html>
