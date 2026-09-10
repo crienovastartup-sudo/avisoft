@@ -1944,6 +1944,8 @@ function CadastroEmpresa({ db, update, empresaId }) {
   const empresa = db.empresas.find((e) => e.id === empresaId);
   const [form, setForm] = useState(empresa);
   const [novaFilial, setNovaFilial] = useState({ nome: "", endereco: "", cidade: "", uf: "" });
+  const [filialVerDadosId, setFilialVerDadosId] = useState(null);
+  const filialVerDados = empresa.filiais.find((f) => f.id === filialVerDadosId);
 
   function salvar(e) {
     e.preventDefault();
@@ -1998,11 +2000,24 @@ function CadastroEmpresa({ db, update, empresaId }) {
           <Button type="submit">Adicionar filial</Button>
         </form>
         <Table
-          columns={[{ key: "nome", label: "Filial" }, { key: "endereco", label: "Endereço" }, { key: "cidade", label: "Cidade" }, { key: "uf", label: "UF" }]}
+          columns={[
+            { key: "nome", label: "Filial" }, { key: "endereco", label: "Endereço" }, { key: "cidade", label: "Cidade" }, { key: "uf", label: "UF" },
+            { key: "verDados", label: "Dados", render: (f) => <button onClick={() => setFilialVerDadosId(f.id)} style={linkBtnStyle(GOLD)}>ver dados</button> },
+          ]}
           rows={empresa.filiais}
           onDelete={(f) => removeFilial(f.id)}
         />
       </Card>
+
+      {filialVerDados && (
+        <Modal title="Dados de demonstração" onClose={() => setFilialVerDadosId(null)} travado>
+          <div style={{ fontSize: 12.5, fontWeight: 700, color: GREEN, marginBottom: 10 }}>Filial: {filialVerDados.nome}</div>
+          <DadosDemonstracaoConteudo db={db} update={update} filialId={filialVerDados.id} />
+          <div style={{ marginTop: 18, borderTop: `1px solid ${BORDER}`, paddingTop: 14, display: "flex", justifyContent: "flex-end" }}>
+            <Button onClick={() => setFilialVerDadosId(null)}>Fechar</Button>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }
@@ -5712,7 +5727,7 @@ const COLECOES_DEMO = [
   "fretes", "viagensEntrega", "registrosEsterco",
 ];
 
-function CardDadosDemonstracao({ db, update, filialId }) {
+function DadosDemonstracaoConteudo({ db, update, filialId }) {
   const [gerando, setGerando] = useState(false);
   const [feito, setFeito] = useState(false);
   const [removendo, setRemovendo] = useState(false);
@@ -5749,13 +5764,24 @@ function CardDadosDemonstracao({ db, update, filialId }) {
   }
 
   return (
-    <Card title="Dados de demonstração" subtitle="Carrega 12 meses de operação fictícia a todo vapor (1 milhão de aves em 12 galpões, dúzia do ovo a R$5,69 com 100% da produção vendida, 1% de quebra, venda de esterco, 49 colaboradores na folha), com custos calibrados pra uma margem realista de avicultura de postura — não uma margem artificialmente alta. Não apaga nada do que já existe.">
+    <div>
+      <div style={{ fontSize: 12.5, color: MUTED, marginBottom: 14, lineHeight: 1.5 }}>
+        Carrega 12 meses de operação fictícia a todo vapor (1 milhão de aves em 12 galpões, dúzia do ovo a R$5,69 com 100% da produção vendida, 1% de quebra, venda de esterco, 49 colaboradores na folha), com custos calibrados pra uma margem realista de avicultura de postura — não uma margem artificialmente alta. Não apaga nada do que já existe.
+      </div>
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
         <Button onClick={carregar} disabled={gerando}>{gerando ? "Gerando…" : "Carregar dados de demonstração"}</Button>
         {temDemo && <Button variant="danger" onClick={remover} disabled={removendo}>{removendo ? "Removendo…" : "Remover dados de demonstração"}</Button>}
       </div>
       {feito && <div style={{ fontSize: 12, color: SUCCESS, marginTop: 8, fontWeight: 700 }}>Dados de demonstração carregados! Navegue pelos módulos para conferir.</div>}
       {temDemo && <div style={{ fontSize: 11.5, color: MUTED, marginTop: 8 }}>Há dados de demonstração carregados nesta filial.</div>}
+    </div>
+  );
+}
+
+function CardDadosDemonstracao({ db, update, filialId }) {
+  return (
+    <Card title="Dados de demonstração">
+      <DadosDemonstracaoConteudo db={db} update={update} filialId={filialId} />
     </Card>
   );
 }
