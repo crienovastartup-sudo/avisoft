@@ -138,7 +138,7 @@ const emptyDB = () => ({
 const MODULES = [
   { key: "inicio", label: "Início", icon: "🏠", always: true },
   { key: "cadastro", label: "Empresa & Filiais", icon: "🏢" },
-  { key: "usuarios", label: "Usuários & Permissões", icon: "👤" },
+  { key: "usuarios", label: "Usuários & Permissões", icon: "👥" },
   { key: "produtos", label: "Produtos & Embalagens", icon: "🥚" },
   { key: "vendas", label: "Vendas & Comissões", icon: "🛒" },
   { key: "estoque", label: "Estoque de Produtos", icon: "📦" },
@@ -152,12 +152,12 @@ const MODULES = [
   { key: "logistica", label: "Logística", icon: "🚚" },
   { key: "rotasfrete", label: "Rotas de Entrega", icon: "🗺️" },
   { key: "fiscal", label: "Fiscal (NFe/SPED)", icon: "🧾" },
-  { key: "folha", label: "Folha de Pagamento", icon: "🧑‍🌾" },
+  { key: "folha", label: "Folha de Pagamento", icon: "💰" },
   { key: "relatorio", label: "Relatório Gerencial", icon: "📈" },
   { key: "producao", label: "Produção Avícola", icon: "🐔" },
   { key: "sensores", label: "Sensores / IoT", icon: "📡" },
-  { key: "logs", label: "Log de Auditoria", icon: "🕵️" },
-  { key: "forcavendas", label: "Força de Vendas", icon: "🎯" },
+  { key: "logs", label: "Log de Auditoria", icon: "🔍" },
+  { key: "forcavendas", label: "Força de Vendas", icon: "🤝" },
 ];
 
 /* -------- condições de pagamento & parcelamento -------- */
@@ -4897,7 +4897,7 @@ function OrcamentoDoc({ orcamento, empresa, filial, cliente, produtos, vendedorN
       <div style={{ textAlign: "right", marginTop: 12, fontSize: 18, fontWeight: 800, color: GREEN }}>Total: {brl(orcamento.total)}</div>
       <div style={{ marginTop: 12, fontSize: 11, color: "#444", lineHeight: 1.7 }}>
         <b>Condição de pagamento:</b> {CONDICOES_PAGAMENTO.find((c) => c.value === orcamento.condicaoPagamento)?.label || "—"}<br />
-        <b>Entrega:</b> {orcamento.tipoEntrega === "entrega" ? `Entrega própria (frete: ${brl(orcamento.valorFrete)})` : "Cliente retira no local"}<br />
+        <b>Entrega:</b> {orcamento.tipoEntrega === "entrega" ? (orcamento.freteCobrado === "destacado" ? `Entrega própria (frete cobrado: ${brl(orcamento.entrega?.valorFrete || 0)})` : "Entrega própria (frete grátis)") : "Cliente retira no local"}<br />
         <b>Vendedor:</b> {vendedorNome || "—"}
       </div>
       <div style={{ marginTop: 16, fontSize: 9.5, color: "#999", textAlign: "center" }}>Este documento é uma proposta comercial e não tem valor fiscal.</div>
@@ -4936,16 +4936,13 @@ function OrcamentosLista({ db, update, filialId }) {
       id: uid(), filialId, data: todayISO(), clienteId: orc.clienteId, vendedorId: orc.vendedorId,
       itens: itensComCfop, total: orc.total, comissaoValor, gerenteComercialId, comissaoGerenteValor,
       condicaoPagamento: orc.condicaoPagamento || "boleto_30", centroCustoId: "", parcelas, nfe: null, origem: "Orçamento convertido",
+      entrega: orc.entrega || { modalidadeFrete: "sem_frete", enderecoEntrega: "", valorFrete: 0, status: "" },
     };
     const movimentos = orc.itens.map((it) => ({ id: uid(), filialId, data: todayISO(), produtoId: it.produtoId, tipo: "saida", qtd: it.qtd, motivo: "Venda (orçamento convertido)", origem: "venda:" + venda.id }));
-    const freteNovo = orc.tipoEntrega === "entrega"
-      ? [{ id: uid(), filialId, data: todayISO(), motoristaId: "", veiculoId: "", destino: `${cliente?.razaoSocial || "Cliente"} — ${cliente?.cidade || ""}/${cliente?.uf || ""}`, valorFrete: Number(orc.valorFrete || 0), statusPagamento: "pendente", origemVendaId: venda.id }]
-      : [];
     update((prev) => ({
       ...prev,
       vendas: [...prev.vendas, venda],
       movimentacoesEstoque: [...prev.movimentacoesEstoque, ...movimentos],
-      fretes: [...prev.fretes, ...freteNovo],
       orcamentos: prev.orcamentos.map((o) => (o.id === orc.id ? { ...o, status: "convertido", vendaId: venda.id } : o)),
     }));
     alert("Orçamento convertido em venda! Vá ao módulo Vendas ou Fiscal para emitir a NF-e.");
@@ -5000,11 +4997,13 @@ function ForcaDeVendas({ db, update, filialId }) {
   const [vendedorId, setVendedorId] = useState(vendedoresAtivos[0]?.id || "");
   const [buscaCliente, setBuscaCliente] = useState("");
   const [clienteSelecionadoId, setClienteSelecionadoId] = useState("");
-  const [novoCliente, setNovoCliente] = useState({ razaoSocial: "", telefone1: "", cidade: "", uf: "" });
+  const [novoCliente, setNovoCliente] = useState({ razaoSocial: "", cpfCnpj: "", inscricaoEstadual: "", endereco: "", numero: "", bairro: "", cidade: "", uf: "", telefone1: "" });
   const [carrinho, setCarrinho] = useState([]); // [{produtoId, qtd, precoUnit}]
   const [tipoDocumento, setTipoDocumento] = useState("venda"); // orcamento | venda
   const [condicaoPagamento, setCondicaoPagamento] = useState("vista_pix");
   const [tipoEntrega, setTipoEntrega] = useState("retira"); // retira | entrega
+  const [freteCobrado, setFreteCobrado] = useState("gratis"); // gratis | destacado — só quando tipoEntrega === "entrega"
+  const [enderecoEntrega, setEnderecoEntrega] = useState("");
   const [valorFrete, setValorFrete] = useState("");
   const [resultado, setResultado] = useState(null);
 
@@ -5066,9 +5065,9 @@ function ForcaDeVendas({ db, update, filialId }) {
 
   function reiniciar() {
     setEtapa("cliente"); setClienteSelecionadoId(""); setBuscaCliente("");
-    setNovoCliente({ razaoSocial: "", telefone1: "", cidade: "", uf: "" });
+    setNovoCliente({ razaoSocial: "", cpfCnpj: "", inscricaoEstadual: "", endereco: "", numero: "", bairro: "", cidade: "", uf: "", telefone1: "" });
     setCarrinho([]); setTipoDocumento("venda"); setCondicaoPagamento("vista_pix"); setResultado(null);
-    setTipoEntrega("retira"); setValorFrete("");
+    setTipoEntrega("retira"); setFreteCobrado("gratis"); setEnderecoEntrega(""); setValorFrete("");
   }
 
   function concluirPedido() {
@@ -5081,21 +5080,29 @@ function ForcaDeVendas({ db, update, filialId }) {
     let cliente = clienteObj;
     if (!clienteId) {
       novoClienteRegistro = {
-        id: uid(), filialId, razaoSocial: novoCliente.razaoSocial, cpfCnpj: "", inscricaoEstadual: "",
-        endereco: "", numero: "", bairro: "", cidade: novoCliente.cidade, uf: novoCliente.uf,
+        id: uid(), filialId, razaoSocial: novoCliente.razaoSocial, cpfCnpj: novoCliente.cpfCnpj, inscricaoEstadual: novoCliente.inscricaoEstadual,
+        endereco: novoCliente.endereco, numero: novoCliente.numero, bairro: novoCliente.bairro, cidade: novoCliente.cidade, uf: novoCliente.uf,
         telefone1: novoCliente.telefone1, telefone2: "", email1: "", email2: "", responsavel: "", anexos: [],
       };
       clienteId = novoClienteRegistro.id;
       cliente = novoClienteRegistro;
     }
 
-    const total = totalCarrinho;
+    const enderecoFinal = enderecoEntrega || [cliente?.endereco, cliente?.numero, cliente?.bairro, cliente?.cidade, cliente?.uf].filter(Boolean).join(", ");
+    const modalidadeFrete = tipoEntrega === "retira" ? "sem_frete" : (freteCobrado === "destacado" ? "cif_destacado" : "cif_gratis");
+    const freteDestacado = modalidadeFrete === "cif_destacado" ? Number(valorFrete || 0) : 0;
+    const total = totalCarrinho + freteDestacado;
+    const entregaInfo = {
+      modalidadeFrete, valorFrete: freteDestacado,
+      enderecoEntrega: modalidadeFrete === "sem_frete" ? "" : enderecoFinal,
+      status: modalidadeFrete === "sem_frete" ? "" : "aguardando",
+    };
 
     if (tipoDocumento === "orcamento") {
       const orc = {
         id: uid(), filialId, data: todayISO(), clienteId, vendedorId,
         itens: carrinho.map((it) => ({ ...it })), total, condicaoPagamento, status: "aberto",
-        tipoEntrega, valorFrete: tipoEntrega === "entrega" ? Number(valorFrete || 0) : 0,
+        tipoEntrega, freteCobrado, entrega: entregaInfo,
         validadeAte: new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10),
       };
       update((prev) => ({
@@ -5125,18 +5132,15 @@ function ForcaDeVendas({ db, update, filialId }) {
       id: uid(), filialId, data: todayISO(), clienteId, vendedorId,
       itens: itensComCfop, total, comissaoValor, gerenteComercialId, comissaoGerenteValor,
       condicaoPagamento, centroCustoId: "", parcelas, nfe: null, origem: "Força de Vendas",
+      entrega: entregaInfo,
     };
     const movimentos = carrinho.map((it) => ({ id: uid(), filialId, data: todayISO(), produtoId: it.produtoId, tipo: "saida", qtd: it.qtd, motivo: "Venda (Força de Vendas)", origem: "venda:" + venda.id }));
-    const freteNovo = tipoEntrega === "entrega"
-      ? [{ id: uid(), filialId, data: todayISO(), motoristaId: "", veiculoId: "", destino: `${cliente?.razaoSocial || "Cliente"} — ${cliente?.cidade || ""}/${cliente?.uf || ""}`, valorFrete: Number(valorFrete || 0), statusPagamento: "pendente", origemVendaId: venda.id }]
-      : [];
 
     update((prev) => ({
       ...prev,
       clientes: novoClienteRegistro ? [...prev.clientes, novoClienteRegistro] : prev.clientes,
       vendas: [...prev.vendas, venda],
       movimentacoesEstoque: [...prev.movimentacoesEstoque, ...movimentos],
-      fretes: [...prev.fretes, ...freteNovo],
     }));
 
     let pix = null;
@@ -5188,19 +5192,38 @@ function ForcaDeVendas({ db, update, filialId }) {
               </div>
             )}
             {clienteSelecionadoId ? (
-              <div style={{ background: "#EAF3EC", borderRadius: 8, padding: 10, fontSize: 13, fontWeight: 700, color: GREEN, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                {clienteObj?.razaoSocial}
-                <button onClick={() => { setClienteSelecionadoId(""); setBuscaCliente(""); }} style={{ border: "none", background: "none", color: DANGER, cursor: "pointer", fontWeight: 700 }}>trocar</button>
+              <div style={{ background: "#EAF3EC", borderRadius: 8, padding: 10, fontSize: 13, color: GREEN }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span style={{ fontWeight: 700 }}>{clienteObj?.razaoSocial}</span>
+                  <button onClick={() => { setClienteSelecionadoId(""); setBuscaCliente(""); }} style={{ border: "none", background: "none", color: DANGER, cursor: "pointer", fontWeight: 700 }}>trocar</button>
+                </div>
+                <div style={{ fontSize: 11.5, fontWeight: 500, marginTop: 4 }}>
+                  {clienteObj?.cpfCnpj ? `CNPJ/CPF: ${clienteObj.cpfCnpj}` : <span style={{ color: DANGER }}>⚠ sem CNPJ/CPF cadastrado</span>}
+                </div>
+                <div style={{ fontSize: 11.5, fontWeight: 500 }}>
+                  {[clienteObj?.endereco, clienteObj?.numero, clienteObj?.bairro].filter(Boolean).join(", ") || <span style={{ color: DANGER }}>⚠ sem endereço cadastrado</span>}
+                  {clienteObj?.cidade ? ` — ${clienteObj.cidade}/${clienteObj.uf}` : ""}
+                </div>
               </div>
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                 <div style={{ fontSize: 12, color: MUTED, fontWeight: 700 }}>OU CADASTRE UM NOVO CLIENTE:</div>
                 <Field label="Nome / Razão social"><TextInput value={novoCliente.razaoSocial} onChange={(e) => setNovoCliente({ ...novoCliente, razaoSocial: e.target.value })} /></Field>
                 <div style={{ display: "flex", gap: 10 }}>
-                  <Field label="Telefone"><TextInput value={novoCliente.telefone1} onChange={(e) => setNovoCliente({ ...novoCliente, telefone1: e.target.value })} /></Field>
+                  <Field label="CPF/CNPJ"><TextInput value={novoCliente.cpfCnpj} onChange={(e) => setNovoCliente({ ...novoCliente, cpfCnpj: e.target.value })} /></Field>
+                  <Field label="Inscrição estadual"><TextInput value={novoCliente.inscricaoEstadual} onChange={(e) => setNovoCliente({ ...novoCliente, inscricaoEstadual: e.target.value })} /></Field>
+                </div>
+                <Field label="Telefone"><TextInput value={novoCliente.telefone1} onChange={(e) => setNovoCliente({ ...novoCliente, telefone1: e.target.value })} /></Field>
+                <div style={{ display: "flex", gap: 10 }}>
+                  <div style={{ flex: 2 }}><Field label="Endereço"><TextInput value={novoCliente.endereco} onChange={(e) => setNovoCliente({ ...novoCliente, endereco: e.target.value })} /></Field></div>
+                  <div style={{ flex: 1 }}><Field label="Número"><TextInput value={novoCliente.numero} onChange={(e) => setNovoCliente({ ...novoCliente, numero: e.target.value })} /></Field></div>
+                </div>
+                <Field label="Bairro"><TextInput value={novoCliente.bairro} onChange={(e) => setNovoCliente({ ...novoCliente, bairro: e.target.value })} /></Field>
+                <div style={{ display: "flex", gap: 10 }}>
                   <Field label="Cidade"><TextInput value={novoCliente.cidade} onChange={(e) => setNovoCliente({ ...novoCliente, cidade: e.target.value })} /></Field>
                   <Field label="UF"><TextInput maxLength={2} value={novoCliente.uf} onChange={(e) => setNovoCliente({ ...novoCliente, uf: e.target.value.toUpperCase() })} style={{ width: 60 }} /></Field>
                 </div>
+                <div style={{ fontSize: 11, color: MUTED }}>CNPJ/CPF e endereço completo são necessários pra emitir NF-e e pra usar o endereço de entrega nas Rotas de Entrega — pode completar depois em Vendas & Comissões → Clientes, mas o ideal é preencher aqui mesmo.</div>
               </div>
             )}
           </Card>
@@ -5318,13 +5341,20 @@ function ForcaDeVendas({ db, update, filialId }) {
           <Card title="Entrega">
             <div style={{ display: "flex", gap: 10 }}>
               <button onClick={() => setTipoEntrega("retira")} style={{ flex: 1, padding: "12px", borderRadius: 10, border: `2px solid ${tipoEntrega === "retira" ? GREEN : BORDER}`, background: tipoEntrega === "retira" ? "#EAF3EC" : CARD, fontWeight: 800, cursor: "pointer", color: GREEN, fontSize: 12.5 }}>Cliente retira</button>
-              <button onClick={() => setTipoEntrega("entrega")} style={{ flex: 1, padding: "12px", borderRadius: 10, border: `2px solid ${tipoEntrega === "entrega" ? GOLD : BORDER}`, background: tipoEntrega === "entrega" ? "#FBF3DC" : CARD, fontWeight: 800, cursor: "pointer", color: GREEN, fontSize: 12.5 }}>Entrega própria</button>
+              <button onClick={() => { setTipoEntrega("entrega"); if (!enderecoEntrega) setEnderecoEntrega([cliente?.endereco, cliente?.numero, cliente?.bairro, cliente?.cidade, cliente?.uf].filter(Boolean).join(", ")); }} style={{ flex: 1, padding: "12px", borderRadius: 10, border: `2px solid ${tipoEntrega === "entrega" ? GOLD : BORDER}`, background: tipoEntrega === "entrega" ? "#FBF3DC" : CARD, fontWeight: 800, cursor: "pointer", color: GREEN, fontSize: 12.5 }}>Entrega própria</button>
             </div>
             {tipoEntrega === "retira" && <div style={{ fontSize: 11.5, color: MUTED, marginTop: 8 }}>Sem custo de frete — o cliente busca no local.</div>}
             {tipoEntrega === "entrega" && (
-              <div style={{ marginTop: 10 }}>
-                <Field label="Valor do frete (R$) — pode deixar 0 se for cortesia"><TextInput type="number" step="0.01" value={valorFrete} onChange={(e) => setValorFrete(e.target.value)} /></Field>
-                <div style={{ fontSize: 11.5, color: MUTED, marginTop: 6 }}>Gera um lançamento em Logística — depois é só atribuir motorista e veículo por lá.</div>
+              <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 10 }}>
+                <Field label="Endereço de entrega"><TextInput value={enderecoEntrega} onChange={(e) => setEnderecoEntrega(e.target.value)} placeholder="Preenchido a partir do cliente — edite se for outro endereço" /></Field>
+                <div style={{ display: "flex", gap: 10 }}>
+                  <button onClick={() => setFreteCobrado("gratis")} style={{ flex: 1, padding: "10px", borderRadius: 10, border: `2px solid ${freteCobrado === "gratis" ? GREEN : BORDER}`, background: freteCobrado === "gratis" ? "#EAF3EC" : CARD, fontWeight: 700, cursor: "pointer", color: GREEN, fontSize: 12 }}>Frete grátis (custo absorvido)</button>
+                  <button onClick={() => setFreteCobrado("destacado")} style={{ flex: 1, padding: "10px", borderRadius: 10, border: `2px solid ${freteCobrado === "destacado" ? GOLD : BORDER}`, background: freteCobrado === "destacado" ? "#FBF3DC" : CARD, fontWeight: 700, cursor: "pointer", color: GREEN, fontSize: 12 }}>Cobrar frete do cliente</button>
+                </div>
+                {freteCobrado === "destacado" && (
+                  <Field label="Valor do frete (R$)"><TextInput type="number" step="0.01" value={valorFrete} onChange={(e) => setValorFrete(e.target.value)} /></Field>
+                )}
+                <div style={{ fontSize: 11.5, color: MUTED }}>{freteCobrado === "destacado" ? "O valor do frete soma ao total da venda e aparece destacado na NF-e." : "Entra como pedido aguardando entrega em Rotas de Entrega — sem custo pro cliente."}</div>
               </div>
             )}
           </Card>
