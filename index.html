@@ -149,35 +149,37 @@ const emptyDB = () => ({
   contratosFornecimento: [],
 });
 
+const GRUPOS_MENU = ["Administração", "Produção", "Comercial", "Estoque & Ativos", "Compras & Logística", "Financeiro", "Gestão & Compliance"];
+
 const MODULES = [
   { key: "inicio", label: "Início", icon: "🏠", always: true },
-  { key: "cadastro", label: "Empresa & Filiais", icon: "🏢" },
-  { key: "usuarios", label: "Usuários & Permissões", icon: "👥" },
-  { key: "produtos", label: "Produtos & Embalagens", icon: "🥚" },
-  { key: "vendas", label: "Vendas & Comissões", icon: "🛒" },
-  { key: "estoque", label: "Estoque de Produtos", icon: "📦" },
-  { key: "almoxarifado", label: "Almoxarifado", icon: "🧰" },
-  { key: "imobilizado", label: "Imobilizado", icon: "🚜" },
-  { key: "racao", label: "Fábrica de Ração", icon: "🌽" },
-  { key: "inspecaoSanitaria", label: "Inspeção Sanitária", icon: "🩺" },
-  { key: "controlePragas", label: "Controle de Pragas", icon: "🐀" },
-  { key: "tarefas", label: "Tarefas & Produtividade", icon: "✅" },
-  { key: "crm", label: "CRM", icon: "📇" },
-  { key: "contratos", label: "Contratos de Fornecimento", icon: "📜" },
-  { key: "segurancaVisitantes", label: "Segurança & Visitantes", icon: "🛡️" },
-  { key: "compras", label: "Compras & Insumos", icon: "📥" },
-  { key: "financeiro", label: "Financeiro", icon: "💵" },
-  { key: "centrocusto", label: "Centro de Custo", icon: "🎯" },
-  { key: "contabilidade", label: "Contabilidade", icon: "📚" },
-  { key: "logistica", label: "Logística", icon: "🚚" },
-  { key: "rotasfrete", label: "Rotas de Entrega", icon: "🗺️" },
-  { key: "fiscal", label: "Fiscal (NFe/SPED)", icon: "🧾" },
-  { key: "folha", label: "Folha de Pagamento", icon: "💰" },
-  { key: "relatorio", label: "Relatório Gerencial", icon: "📈" },
-  { key: "producao", label: "Produção Avícola", icon: "🐔" },
-  { key: "sensores", label: "Sensores / IoT", icon: "📡" },
-  { key: "logs", label: "Log de Auditoria", icon: "🔍" },
-  { key: "forcavendas", label: "Força de Vendas", icon: "🤝" },
+  { key: "cadastro", label: "Empresa & Filiais", icon: "🏢", group: "Administração" },
+  { key: "usuarios", label: "Usuários & Permissões", icon: "👥", group: "Administração" },
+  { key: "produtos", label: "Produtos & Embalagens", icon: "🥚", group: "Estoque & Ativos" },
+  { key: "vendas", label: "Vendas & Comissões", icon: "🛒", group: "Comercial" },
+  { key: "estoque", label: "Estoque de Produtos", icon: "📦", group: "Estoque & Ativos" },
+  { key: "almoxarifado", label: "Almoxarifado", icon: "🧰", group: "Estoque & Ativos" },
+  { key: "imobilizado", label: "Imobilizado", icon: "🚜", group: "Estoque & Ativos" },
+  { key: "racao", label: "Fábrica de Ração", icon: "🌽", group: "Produção" },
+  { key: "inspecaoSanitaria", label: "Inspeção Sanitária", icon: "🩺", group: "Produção" },
+  { key: "controlePragas", label: "Controle de Pragas", icon: "🐀", group: "Produção" },
+  { key: "tarefas", label: "Tarefas & Produtividade", icon: "✅", group: "Gestão & Compliance" },
+  { key: "crm", label: "CRM", icon: "📇", group: "Comercial" },
+  { key: "contratos", label: "Contratos de Fornecimento", icon: "📜", group: "Comercial" },
+  { key: "segurancaVisitantes", label: "Segurança & Visitantes", icon: "🛡️", group: "Gestão & Compliance" },
+  { key: "compras", label: "Compras & Insumos", icon: "📥", group: "Compras & Logística" },
+  { key: "financeiro", label: "Financeiro", icon: "💵", group: "Financeiro" },
+  { key: "centrocusto", label: "Centro de Custo", icon: "🎯", group: "Financeiro" },
+  { key: "contabilidade", label: "Contabilidade", icon: "📚", group: "Financeiro" },
+  { key: "logistica", label: "Logística", icon: "🚚", group: "Compras & Logística" },
+  { key: "rotasfrete", label: "Rotas de Entrega", icon: "🗺️", group: "Compras & Logística" },
+  { key: "fiscal", label: "Fiscal (NFe/SPED)", icon: "🧾", group: "Financeiro" },
+  { key: "folha", label: "Folha de Pagamento", icon: "💰", group: "Financeiro" },
+  { key: "relatorio", label: "Relatório Gerencial", icon: "📈", group: "Financeiro" },
+  { key: "producao", label: "Produção Avícola", icon: "🐔", group: "Produção" },
+  { key: "sensores", label: "Sensores / IoT", icon: "📡", group: "Produção" },
+  { key: "logs", label: "Log de Auditoria", icon: "🔍", group: "Gestão & Compliance" },
+  { key: "forcavendas", label: "Força de Vendas", icon: "🤝", group: "Comercial" },
 ];
 
 /* -------- condições de pagamento & parcelamento -------- */
@@ -372,6 +374,41 @@ function idadeSemanas(dataAlojamento, dataRef) {
   const dias = Math.floor((ref - inicio) / 86400000);
   if (dias < 0) return null;
   return Math.floor(dias / 7);
+}
+
+/* ---------------- classificação de ovo por calibre/peso (referência compartilhada) ---------------- */
+const CLASSIFICACOES_OVO = [
+  { value: "jumbo", label: "Jumbo" },
+  { value: "extra", label: "Extra" },
+  { value: "grande", label: "Grande" },
+  { value: "medio", label: "Médio" },
+  { value: "pequeno", label: "Pequeno/Industrial" },
+];
+const ROTULO_CLASSIFICACAO_OVO = Object.fromEntries(CLASSIFICACOES_OVO.map((c) => [c.value, c.label]));
+
+/* Vendas de ovo agrupadas por calibre (classificacaoOvo do produto vendido) — quantidade,
+   receita, custo (COGS pelo custoUnit cadastrado no produto) e lucro. Usado no Relatório
+   Gerencial (análise de margem) e no Início (destaque do calibre mais vendido/lucrativo). */
+function desempenhoPorClassificacaoOvo(vendas, produtos) {
+  const porCalibre = {};
+  CLASSIFICACOES_OVO.forEach((c) => { porCalibre[c.value] = { quantidade: 0, receita: 0, custo: 0 }; });
+  vendas.forEach((v) => (v.itens || []).forEach((it) => {
+    const produto = produtos.find((p) => p.id === it.produtoId);
+    if (!produto || !produto.classificacaoOvo || !porCalibre[produto.classificacaoOvo]) return;
+    const qtd = Number(it.qtd || 0);
+    const receita = qtd * Number(it.precoUnit || 0);
+    const custo = qtd * Number(produto.custoUnit || 0);
+    const acumulado = porCalibre[produto.classificacaoOvo];
+    acumulado.quantidade += qtd;
+    acumulado.receita += receita;
+    acumulado.custo += custo;
+  }));
+  return CLASSIFICACOES_OVO.map((c) => {
+    const { quantidade, receita, custo } = porCalibre[c.value];
+    const lucro = receita - custo;
+    const margem = receita > 0 ? (lucro / receita) * 100 : null;
+    return { value: c.value, label: c.label, quantidade, receita, custo, lucro, margem };
+  }).filter((c) => c.quantidade > 0);
 }
 
 /* ---------------- responsividade: celular vs. tablet/desktop ---------------- */
@@ -1606,6 +1643,26 @@ function Sidebar({ modules, active, onSelect, empresa, filial, empresas, onSwitc
   const isMobile = useIsMobile();
   const [aberto, setAberto] = useState(false);
 
+  const semGrupo = modules.filter((m) => !m.group);
+  const grupos = GRUPOS_MENU.map((nome) => ({ nome, itens: modules.filter((m) => m.group === nome) })).filter((g) => g.itens.length);
+
+  const botaoModulo = (m) => (
+    <button
+      key={m.key}
+      onClick={() => { onSelect(m.key); if (isMobile) setAberto(false); }}
+      style={{
+        display: "flex", alignItems: "center", gap: 10, width: "100%", textAlign: "left",
+        padding: "9px 10px", marginBottom: 2, borderRadius: 8, border: "none", cursor: "pointer",
+        background: active === m.key ? GOLD : "transparent",
+        color: active === m.key ? GREEN_DARK : "#EAF0EC",
+        fontWeight: active === m.key ? 800 : 600, fontSize: 13,
+      }}
+    >
+      <span style={{ width: 26, textAlign: "center", fontSize: 18, lineHeight: 1, filter: active === m.key ? "none" : "grayscale(0.15)" }}>{m.icon}</span>
+      {m.label}
+    </button>
+  );
+
   const conteudo = (
     <>
       <div style={{ padding: "20px 18px 14px" }}>
@@ -1624,21 +1681,12 @@ function Sidebar({ modules, active, onSelect, empresa, filial, empresas, onSwitc
         </select>
       </div>
       <nav style={{ flex: 1, overflowY: "auto", padding: "4px 10px" }}>
-        {modules.map((m) => (
-          <button
-            key={m.key}
-            onClick={() => { onSelect(m.key); if (isMobile) setAberto(false); }}
-            style={{
-              display: "flex", alignItems: "center", gap: 10, width: "100%", textAlign: "left",
-              padding: "9px 10px", marginBottom: 2, borderRadius: 8, border: "none", cursor: "pointer",
-              background: active === m.key ? GOLD : "transparent",
-              color: active === m.key ? GREEN_DARK : "#EAF0EC",
-              fontWeight: active === m.key ? 800 : 600, fontSize: 13,
-            }}
-          >
-            <span style={{ width: 26, textAlign: "center", fontSize: 18, lineHeight: 1, filter: active === m.key ? "none" : "grayscale(0.15)" }}>{m.icon}</span>
-            {m.label}
-          </button>
+        {semGrupo.map(botaoModulo)}
+        {grupos.map((g) => (
+          <div key={g.nome} style={{ marginTop: 10 }}>
+            <div style={{ padding: "6px 10px 5px", fontSize: 10.5, fontWeight: 700, letterSpacing: 0.7, color: "#8FA89B", textTransform: "uppercase" }}>{g.nome}</div>
+            {g.itens.map(botaoModulo)}
+          </div>
         ))}
       </nav>
       <div style={{ padding: 14, borderTop: `1px solid ${GREEN_LIGHT}` }}>
@@ -1745,10 +1793,7 @@ function ModuleView({ activeModule, db, update, conn, filialId, empresaId, usuar
               },
               { key: "tipo", label: "Tipo" },
               {
-                key: "classificacaoOvo", label: "Classificação", render: (r) => {
-                  const rotulos = { jumbo: "Jumbo", extra: "Extra", grande: "Grande", medio: "Médio", pequeno: "Pequeno/Industrial" };
-                  return rotulos[r.classificacaoOvo] || "—";
-                },
+                key: "classificacaoOvo", label: "Classificação", render: (r) => ROTULO_CLASSIFICACAO_OVO[r.classificacaoOvo] || "—",
               },
               { key: "unidade", label: "Unid." },
               { key: "custoUnit", label: "Custo", render: (r) => brl(r.custoUnit) },
@@ -2003,6 +2048,11 @@ function Inicio({ db, update, filialId }) {
     .map(([clienteId, value]) => ({ label: clientes.find((c) => c.id === clienteId)?.razaoSocial || "Cliente removido", value }))
     .sort((a, b) => b.value - a.value).slice(0, 10);
 
+  // Classificação de ovo — calibre mais vendido e mais lucrativo (mesmo cálculo do Relatório Gerencial, sem filtro de período)
+  const desempenhoOvoCalibre = desempenhoPorClassificacaoOvo(vendas, produtos);
+  const calibreMaisLucrativo = [...desempenhoOvoCalibre].sort((a, b) => b.lucro - a.lucro)[0];
+  const calibreMaisVendido = [...desempenhoOvoCalibre].sort((a, b) => b.quantidade - a.quantidade)[0];
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
       {/* Dados de demonstração: agora fica em Empresa & Filiais (coluna "Dados" de cada filial), não mais aqui. */}
@@ -2045,6 +2095,23 @@ function Inicio({ db, update, filialId }) {
           <RankedList items={rankClientes} formatValue={brl} />
         </Card>
       </div>
+
+      {!!desempenhoOvoCalibre.length && (
+        <Card title="Classificação de ovo — calibre campeão" subtitle="Histórico completo desta filial. Detalhamento por período em Relatório Gerencial.">
+          <div style={{ display: "grid", gridTemplateColumns: gridCols(isMobile, "1fr 1fr"), gap: 14 }}>
+            <div>
+              <div style={{ fontSize: 11, color: MUTED, textTransform: "uppercase", letterSpacing: 0.5 }}>Mais lucrativo</div>
+              <div style={{ fontSize: 22, fontWeight: 800, color: GREEN }}>{calibreMaisLucrativo.label}</div>
+              <div style={{ fontSize: 13, color: MUTED, marginTop: 4 }}>{brl(calibreMaisLucrativo.lucro)} de lucro{calibreMaisLucrativo.margem !== null && ` · margem de ${calibreMaisLucrativo.margem.toFixed(1)}%`}</div>
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: MUTED, textTransform: "uppercase", letterSpacing: 0.5 }}>Mais vendido</div>
+              <div style={{ fontSize: 22, fontWeight: 800, color: GOLD }}>{calibreMaisVendido.label}</div>
+              <div style={{ fontSize: 13, color: MUTED, marginTop: 4 }}>{calibreMaisVendido.quantidade.toLocaleString("pt-BR")} unidades vendidas</div>
+            </div>
+          </div>
+        </Card>
+      )}
 
       <Card title="Últimas vendas">
         <Table
@@ -2243,13 +2310,24 @@ function Usuarios({ db, update, empresaId }) {
           {!draft.admin && (
             <div>
               <div style={{ fontSize: 12.5, fontWeight: 700, color: MUTED, marginBottom: 8 }}>Módulos permitidos</div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                {assignable.map((m) => (
-                  <label key={m.key} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, background: draft.permissoes.includes(m.key) ? "#EAF3EC" : BG, border: `1px solid ${BORDER}`, borderRadius: 999, padding: "5px 12px", cursor: "pointer" }}>
-                    <input type="checkbox" checked={draft.permissoes.includes(m.key)} onChange={() => togglePerm(m.key)} />
-                    {m.label}
-                  </label>
-                ))}
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                {GRUPOS_MENU.map((nome) => {
+                  const itensGrupo = assignable.filter((m) => m.group === nome);
+                  if (!itensGrupo.length) return null;
+                  return (
+                    <div key={nome}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: MUTED, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 5 }}>{nome}</div>
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                        {itensGrupo.map((m) => (
+                          <label key={m.key} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, background: draft.permissoes.includes(m.key) ? "#EAF3EC" : BG, border: `1px solid ${BORDER}`, borderRadius: 999, padding: "5px 12px", cursor: "pointer" }}>
+                            <input type="checkbox" checked={draft.permissoes.includes(m.key)} onChange={() => togglePerm(m.key)} />
+                            {m.label}
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}
@@ -4842,6 +4920,7 @@ function RelatorioGerencial({ db, update, filialId }) {
   const avulsasAll = db.contasAvulsas.filter((a) => a.filialId === filialId);
   const funcionarios = db.funcionarios.filter((f) => f.filialId === filialId && f.ativo !== false && f.ativo !== "false");
   const vendedores = db.vendedores.filter((v) => v.filialId === filialId);
+  const produtos = db.produtos.filter((p) => p.filialId === filialId);
 
   const configSalva = db.configsGerenciais.find((c) => c.filialId === filialId) || { investimentoTotal: 0, aliquotaImposto: 34, descontoValidadeAtivo: false, descontoValidadeDias: 7, descontoValidadePercentual: 10, lalurAdicoes: 0, lalurExclusoes: 0 };
   const [config, setConfig] = useState({
@@ -4983,6 +5062,10 @@ function RelatorioGerencial({ db, update, filialId }) {
     return { ...vend, totalVendido: proprias.reduce((s, v) => s + Number(v.total || 0), 0), comissaoPropria, comissaoGerente, comissaoTotal: comissaoPropria + comissaoGerente };
   }).filter((v) => v.totalVendido > 0 || v.comissaoTotal > 0);
 
+  const desempenhoOvoCalibre = desempenhoPorClassificacaoOvo(vendas, produtos).sort((a, b) => b.lucro - a.lucro);
+  const calibreMaisLucrativo = [...desempenhoOvoCalibre].sort((a, b) => b.lucro - a.lucro)[0];
+  const calibreMaisVendido = [...desempenhoOvoCalibre].sort((a, b) => b.quantidade - a.quantidade)[0];
+
   const linha = (label, valor, bold, indent) => (
     <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: `1px solid ${BORDER}`, fontWeight: bold ? 800 : 500, paddingLeft: indent ? 16 : 0, color: bold ? GREEN : INK, fontSize: bold ? 14 : 13 }}>
       <span>{label}</span><span>{brl(valor)}</span>
@@ -5096,6 +5179,27 @@ function RelatorioGerencial({ db, update, filialId }) {
             { indicador: "EBITDA", atual: resumoSemestreAtual.ebitda, anterior: resumoSemestreAnterior.ebitda, variacao: variacao(resumoSemestreAtual.ebitda, resumoSemestreAnterior.ebitda) },
             { indicador: "Lucro líquido estimado", atual: resumoSemestreAtual.lucro, anterior: resumoSemestreAnterior.lucro, variacao: variacao(resumoSemestreAtual.lucro, resumoSemestreAnterior.lucro) },
           ]}
+        />
+      </Card>
+
+      <Card title="Classificação de ovo — vendas e margem por calibre" subtitle="No período selecionado, por calibre do ovo vendido (cadastrado em Produtos → Classificação do ovo). Lucro = receita de vendas menos custo unitário cadastrado do produto.">
+        {calibreMaisLucrativo && (
+          <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 14 }}>
+            <StatCard label="Calibre mais lucrativo" value={`${calibreMaisLucrativo.label} — ${brl(calibreMaisLucrativo.lucro)}`} accent={GREEN} />
+            <StatCard label="Calibre mais vendido (quantidade)" value={`${calibreMaisVendido.label} — ${calibreMaisVendido.quantidade.toLocaleString("pt-BR")} un.`} accent={GOLD} />
+          </div>
+        )}
+        <Table
+          columns={[
+            { key: "label", label: "Calibre" },
+            { key: "quantidade", label: "Quantidade vendida", render: (r) => r.quantidade.toLocaleString("pt-BR") },
+            { key: "receita", label: "Receita", render: (r) => brl(r.receita) },
+            { key: "custo", label: "Custo (COGS)", render: (r) => brl(r.custo) },
+            { key: "lucro", label: "Lucro", render: (r) => <span style={{ color: r.lucro >= 0 ? SUCCESS : DANGER, fontWeight: 700 }}>{brl(r.lucro)}</span> },
+            { key: "margem", label: "Margem", render: (r) => (r.margem === null ? "—" : `${r.margem.toFixed(1)}%`) },
+          ]}
+          rows={desempenhoOvoCalibre}
+          emptyText="Nenhuma venda de ovo classificado por calibre neste período — classifique o produto em Produtos & Embalagens (campo 'Classificação do ovo') para aparecer aqui."
         />
       </Card>
 
@@ -5233,24 +5337,21 @@ function ProducaoAvicola({ db, update, filialId }) {
     .filter((l) => l.variacaoPct !== null && Math.abs(l.variacaoPct) >= 15)
     .sort((a, b) => Math.abs(b.variacaoPct) - Math.abs(a.variacaoPct));
 
-  /* -------- classificação de ovos por calibre (últimos 30 dias) -------- */
-  const produtosOvoClassificados = db.produtos.filter((p) => p.filialId === filialId && p.classificacaoOvo);
+  /* -------- classificação de ovos por calibre (últimos 30 dias) — distribuição da PRODUÇÃO,
+     não das vendas. Para saber qual calibre vende mais e dá mais lucro, veja Relatório Gerencial. -------- */
   const posturas30dias = posturas.filter((p) => p.data >= ha30dias);
-  const CLASSIFICACOES_OVO = [
+  const CAMPOS_CLASSIFICACAO_POSTURA = [
     { key: "ovosJumbo", value: "jumbo", label: "Jumbo" },
     { key: "ovosExtra", value: "extra", label: "Extra" },
     { key: "ovosGrande", value: "grande", label: "Grande" },
     { key: "ovosMedio", value: "medio", label: "Médio" },
     { key: "ovosPequeno", value: "pequeno", label: "Pequeno/Industrial" },
   ];
-  const totalClassificado30dias = CLASSIFICACOES_OVO.reduce((s, c) => s + posturas30dias.reduce((s2, p) => s2 + Number(p[c.key] || 0), 0), 0);
-  const classificacaoOvos30dias = CLASSIFICACOES_OVO.map((c) => {
+  const totalClassificado30dias = CAMPOS_CLASSIFICACAO_POSTURA.reduce((s, c) => s + posturas30dias.reduce((s2, p) => s2 + Number(p[c.key] || 0), 0), 0);
+  const classificacaoOvos30dias = CAMPOS_CLASSIFICACAO_POSTURA.map((c) => {
     const quantidade = posturas30dias.reduce((s, p) => s + Number(p[c.key] || 0), 0);
     const pct = totalClassificado30dias > 0 ? (quantidade / totalClassificado30dias) * 100 : null;
-    const produto = produtosOvoClassificados.find((p) => p.classificacaoOvo === c.value);
-    const precoUnit = produto ? Number(produto.precoVenda || 0) : null;
-    const receitaPotencial = precoUnit !== null ? (quantidade / 12) * precoUnit : null;
-    return { ...c, quantidade, pct, precoUnit, receitaPotencial };
+    return { ...c, quantidade, pct };
   });
 
   return (
@@ -5432,14 +5533,12 @@ function ProducaoAvicola({ db, update, filialId }) {
         ]}
       />
 
-      <Card title="Classificação de ovos por calibre — últimos 30 dias" subtitle="Distribuição do que foi classificado nos lançamentos de Postura e quebras acima, e a receita potencial usando o preço cadastrado em Produtos para cada calibre.">
+      <Card title="Classificação de ovos por calibre — distribuição da produção (30 dias)" subtitle="Quanto foi classificado em cada calibre nos lançamentos de Postura e quebras acima. Para saber qual calibre vende mais e dá mais lucro, veja o card de margem por calibre no Relatório Gerencial.">
         <Table
           columns={[
             { key: "label", label: "Classificação" },
             { key: "quantidade", label: "Quantidade (30d)", render: (r) => Number(r.quantidade || 0).toLocaleString("pt-BR") },
             { key: "pct", label: "% do classificado", render: (r) => (r.pct === null ? "—" : `${r.pct.toFixed(1)}%`) },
-            { key: "precoUnit", label: "Preço cadastrado (dúzia)", render: (r) => (r.precoUnit ? brl(r.precoUnit) : "—") },
-            { key: "receitaPotencial", label: "Receita potencial (30d)", render: (r) => (r.receitaPotencial !== null ? brl(r.receitaPotencial) : "—") },
           ]}
           rows={classificacaoOvos30dias}
           emptyText="Nenhum ovo classificado por calibre ainda nos últimos 30 dias."
